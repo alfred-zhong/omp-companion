@@ -21,6 +21,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsController: SettingsWindowController?
     private var state = AppState()
     private var refreshController: RefreshController?
+    private var sleepGuard: SleepGuard?
     private var settingsStore = SettingsStore()
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
@@ -45,6 +46,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         self.refreshController = controller
 
+        let guard_ = SleepGuard(state: state)
+        self.sleepGuard = guard_
+
         let settingsCtrl = SettingsWindowController { [weak controller] newInterval in
             controller?.intervalSeconds = newInterval
         }
@@ -53,6 +57,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let bar = StatusBarController(
             controller: controller,
             state: state,
+            sleepGuard: guard_,
             onShowSettings: { [weak settingsCtrl, weak settingsStore] in
                 guard let s = settingsStore else { return }
                 settingsCtrl?.show(store: s)
@@ -60,5 +65,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         settingsCtrl.attachStatusBar(bar)
         self.statusBar = bar
+    }
+
+    public func applicationWillTerminate(_ notification: Notification) {
+        // 退出时静默 release；SleepGuard.deinit 也会兜底。
+        sleepGuard?.cancel()
     }
 }

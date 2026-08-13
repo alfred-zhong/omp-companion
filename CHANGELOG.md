@@ -2,8 +2,14 @@
 
 ## Unreleased
 
+### 新增特性
+- 菜单栏加入「阻止系统休眠」（Caffeinate）守护：基于 `IOPMAssertion`，同时阻止系统与显示器空闲睡眠；提供 30 / 60 / 120 分钟三档可重复启动，到期或取消自动释放；进程退出静默释放
+- 守护激活时，状态栏标题前出现咖啡色 `☕️ ` 前缀 + 胶囊背景；下拉菜单顶部显示「☕️ 阻止休眠 · 还剩 Xm/Xs」实时倒计时（每秒推进）
+
 ### 变更
-- 新增根目录 `AGENTS.md`（"Repository Guidelines"）：面向 AI 助手的仓库协作手册，覆盖架构、数据流、目录约定、构建命令、代码 / 错误 / 状态管理 / DI 模式、ADR 落地要点与自检流程
+- 新增 SleepGuard / CountdownFormatter / StatusBarTitleComposer 三个模块；新增领域词 Sleep Guard / Caffeinate Session / Caffeinate Bucket（与 Hourly Bucket 解耦）写入 `CONTEXT.md`
+- 状态栏 `NSButton.title` 改为 `attributedTitle`，文本由纯字符串升级为 `NSAttributedString` 以承载彩色前缀
+- `SelfCheck` 增加 Caffeinate / CountdownFormatter / StatusBarTitleComposer 共 14 条断言，全部通过
 
 ## 0.1.2 (2026-08-13)
 

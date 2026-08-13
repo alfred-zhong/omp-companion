@@ -1,7 +1,7 @@
 import Foundation
 import Combine
 
-/// 状态机：菜单栏所需的两路快照。
+/// 状态机：菜单栏所需的两路快照 + 阻止系统休眠会话。
 public final class AppState: ObservableObject, @unchecked Sendable {
     @Published public private(set) var balance: BalanceSnapshot?
     @Published public private(set) var daily: DailyUsageSnapshot?
@@ -9,6 +9,9 @@ public final class AppState: ObservableObject, @unchecked Sendable {
     @Published public private(set) var lastDailyError: String?
     @Published public private(set) var configMissing: Bool = false
     @Published public private(set) var missingCredential: String?
+    @Published public private(set) var caffeinateSession: CaffeinateSession?
+    /// 1 秒一次推进的时间戳；UI 订阅它以重绘倒计时。
+    @Published public private(set) var countdownTick: Date = .distantPast
 
     public init() {}
 
@@ -18,6 +21,8 @@ public final class AppState: ObservableObject, @unchecked Sendable {
     public func setDailyError(_ msg: String?) { self.lastDailyError = msg }
     public func setConfigMissing(_ v: Bool) { self.configMissing = v }
     public func setMissingCredential(_ v: String?) { self.missingCredential = v }
+    public func setCaffeinateSession(_ s: CaffeinateSession?) { self.caffeinateSession = s }
+    public func advanceCountdownTick() { self.countdownTick = Date() }
 }
 
 /// 定时刷新：每次 tick 直接执行一次逻辑，无本地缓存。

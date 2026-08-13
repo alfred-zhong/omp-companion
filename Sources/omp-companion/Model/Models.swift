@@ -112,8 +112,8 @@ public struct HourBucket: Equatable, Sendable {
     }
 }
 
-/// 日用量快照。
-public struct DailyUsageSnapshot: Sendable {
+ /// 日用量快照。
+ public struct DailyUsageSnapshot: Sendable {
     public let today: TokenStats
     public let hourly: [HourBucket]   // 长度 12，index 0 最旧，末位最新
     public let messageCount: Int
@@ -133,5 +133,41 @@ public struct DailyUsageSnapshot: Sendable {
             sum += bucket.stats
         }
         return sum
+     }
+ }
+
+// MARK: - Caffeinate (阻止系统休眠)
+
+/// 阻止系统休眠的预设档位。
+public enum CaffeinateBucket: Int, CaseIterable, Sendable {
+    case thirtyMinutes  = 30
+    case sixtyMinutes   = 60
+    case oneTwentyMinutes = 120
+
+    public var minutes: Int { rawValue }
+    public var label: String { "\(rawValue) 分钟" }
+
+    public static let `default`: CaffeinateBucket = .sixtyMinutes
+}
+
+/// 一次 IOPMAssertion 守护会话。
+public struct CaffeinateSession: Equatable, Sendable {
+    public let bucket: CaffeinateBucket
+    public let startedAt: Date
+    public let endAt: Date
+
+    public init(bucket: CaffeinateBucket, startedAt: Date, endAt: Date) {
+        self.bucket = bucket
+        self.startedAt = startedAt
+        self.endAt = endAt
+    }
+
+    /// 现在到 endAt 的剩余秒数；负数或 0 表示已到期。
+    public func remainingSeconds(now: Date) -> TimeInterval {
+        endAt.timeIntervalSince(now)
+    }
+
+    public func isActive(now: Date) -> Bool {
+        endAt > now
     }
 }

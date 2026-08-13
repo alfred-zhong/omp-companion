@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import Combine
 import SwiftUI
 
@@ -6,23 +7,28 @@ public final class StatusBarController: NSObject, NSMenuDelegate {
     private let statusItem: NSStatusItem
     private let controller: RefreshController
     private let state: AppState
+    private let sleepGuard: SleepGuard
     private var timer: Timer?
     private var cancellables: Set<AnyCancellable> = []
     private var onShowSettings: () -> Void
+    private var caffeinateHeaderItem: NSMenuItem?
 
     public init(
         controller: RefreshController,
         state: AppState,
+        sleepGuard: SleepGuard,
         onShowSettings: @escaping () -> Void
     ) {
         self.controller = controller
         self.state = state
+        self.sleepGuard = sleepGuard
         self.onShowSettings = onShowSettings
         self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        super.init()
         self.statusItem.button?.title = "···"
-        self.statusItem.menu = NSMenu()
-        self.statusItem.menu?.delegate = self
+        let m = NSMenu()
+        self.statusItem.menu = m
+        super.init()
+        m.delegate = self
         wireState()
         Task { @MainActor in
             await self.controller.tick()
@@ -57,23 +63,67 @@ public final class StatusBarController: NSObject, NSMenuDelegate {
         state.$lastDailyError.receive(on: RunLoop.main).sink { bridge($0) }.store(in: &cancellables)
         state.$configMissing.receive(on: RunLoop.main).sink { bridge($0) }.store(in: &cancellables)
         state.$missingCredential.receive(on: RunLoop.main).sink { bridge($0) }.store(in: &cancellables)
+        state.$caffeinateSession.receive(on: RunLoop.main).sink { bridge($0) }.store(in: &cancellables)
+        state.$countdownTick.receive(on: RunLoop.main).sink { [weak self] _ in
+            guard let self else { return }
+            MainActor.assumeIsolated { self.refreshCaffeinateHeaderInPlace() }
+        }.store(in: &cancellables)
     }
 
     @MainActor
     private func updateTitle() {
         if let missing = state.missingCredential {
-            statusItem.button?.title = "⚠︎\(missing.prefix(6))"
+            statusItem.button?.attributedTitle = NSAttributedString(string: "⚠︎\(missing.prefix(6))")
+            applyCaffeinateChrome(active: false)
         } else if state.configMissing {
-            statusItem.button?.title = "?omp"
+            statusItem.button?.attributedTitle = NSAttributedString(string: "?omp")
+            applyCaffeinateChrome(active: false)
         } else if let balance = state.balance {
-            statusItem.button?.title = BalanceFormatter.statusBarText(balance.result) + (balance.isStale ? "·off" : "")
+            let text = BalanceFormatter.statusBarText(balance.result)
+            let active = state.caffeinateSession != nil
+            let padded = active ? " \(text) " : text
+            statusItem.button?.attributedTitle = StatusBarTitleComposer.compose(
+                balanceText: padded,
+                isStale: balance.isStale,
+                caffeinateActive: active
+            )
+            applyCaffeinateChrome(active: active)
         } else {
-            statusItem.button?.title = "···"
+            statusItem.button?.attributedTitle = NSAttributedString(string: "···")
+            applyCaffeinateChrome(active: false)
         }
+    }
+
+    @MainActor
+    private func applyCaffeinateChrome(active: Bool) {
+        guard let button = statusItem.button else { return }
+        button.wantsLayer = true
+        button.layoutSubtreeIfNeeded()
+        let h = max(button.bounds.height, 1)
+        button.layer?.backgroundColor = (active
+            ? StatusBarTitleComposer.caffeinateColor
+            : StatusBarTitleComposer.clearColor).cgColor
+        button.layer?.cornerRadius = active ? h / 2 : 0
+        button.contentTintColor = active ? .white : nil
+        // 去掉状态栏上的补间动画（闪现）。补间会受系统半透明材质干扰。
+        button.layer?.removeAnimation(forKey: "caffeinateChrome.bg")
+        button.layer?.removeAnimation(forKey: "caffeinateChrome.radius")
+    }
+
+
+
+    @MainActor
+    private func refreshCaffeinateHeaderInPlace() {
+        guard let item = caffeinateHeaderItem,
+              let session = state.caffeinateSession else { return }
+        let remaining = session.remainingSeconds(now: Date())
+        item.title = "☕️ 阻止休眠 · 还剩 \(CountdownFormatter.format(remaining: remaining))"
     }
 
     public func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
+        caffeinateHeaderItem = nil
+
         if state.configMissing {
             menu.addItem(withTitle: "未检测到 omp 配置", action: nil, keyEquivalent: "")
             menu.addItem(NSMenuItem.separator())
@@ -118,13 +168,49 @@ public final class StatusBarController: NSObject, NSMenuDelegate {
             menu.addItem(withTitle: line, action: nil, keyEquivalent: "")
         }
         menu.addItem(NSMenuItem.separator())
+        addCaffeinateMenuItems(to: menu)
+        menu.addItem(NSMenuItem.separator())
         addActionItem(menu, title: "偏好…", action: #selector(showSettings), key: ",")
         addActionItem(menu, title: "立即刷新", action: #selector(forceRefresh), key: "r")
         menu.addItem(NSMenuItem.separator())
         addActionItem(menu, title: "退出", action: #selector(quit), key: "q")
     }
 
-    /// 创建带 target 的菜单项：不设 target 时 menu 自动禁用（灰色）。
+    public func menuDidClose(_ menu: NSMenu) {
+        caffeinateHeaderItem = nil
+    }
+
+    private func addCaffeinateMenuItems(to menu: NSMenu) {
+        if let session = state.caffeinateSession {
+            let remaining = session.remainingSeconds(now: Date())
+            let label = "☕️ 阻止休眠 · 还剩 \(CountdownFormatter.format(remaining: remaining))"
+            let header = NSMenuItem(title: label, action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.addItem(header)
+            caffeinateHeaderItem = header
+        }
+
+        let parent = NSMenuItem(title: "阻止系统休眠", action: nil, keyEquivalent: "")
+        let sub = NSMenu()
+        sub.autoenablesItems = false
+        let active = state.caffeinateSession
+        for bucket in CaffeinateBucket.allCases {
+            let item = NSMenuItem(
+                title: "\(bucket.label)\(active?.bucket == bucket ? " ✓" : "")",
+                action: #selector(caffeinateBucket(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = bucket.rawValue
+            sub.addItem(item)
+        }
+        parent.submenu = sub
+        menu.addItem(parent)
+        if active != nil {
+            addActionItem(menu, title: "取消守护", action: #selector(caffeinateCancel))
+        }
+    }
+
     private func addActionItem(_ menu: NSMenu, title: String, action: Selector, key: String = "") {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
         item.target = self
@@ -147,5 +233,15 @@ public final class StatusBarController: NSObject, NSMenuDelegate {
         if let url = URL(string: "https://github.com/alfred-zhong/omp-companion") {
             NSWorkspace.shared.open(url)
         }
+    }
+
+    @objc private func caffeinateBucket(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? Int,
+              let bucket = CaffeinateBucket(rawValue: raw) else { return }
+        sleepGuard.start(bucket: bucket)
+    }
+
+    @objc private func caffeinateCancel() {
+        sleepGuard.cancel()
     }
 }

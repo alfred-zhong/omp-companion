@@ -37,6 +37,18 @@ _Avoid_: 小时柱、时段桶
 真实消耗 token 数 = 总输入 + 输出 = input + output + cacheCreation + cacheRead；柱图按它归一化。
 _Avoid_: 合计、总 token、总消耗
 
-**Refresh**:
-按固定 interval（默认 60s）重新调用两个数据源并刷新 UI 的周期操作；每次刷新都直接执行查询 / 扫描逻辑，无本地缓存。
-_Avoid_: 轮询、拉取
+ **Refresh**:
+ 按固定 interval（默认 60s）重新调用两个数据源并刷新 UI 的周期操作；每次刷新都直接执行查询 / 扫描逻辑，无本地缓存。
+ _Avoid_: 轮询、拉取
+
+**Sleep Guard**:
+基于 IOPMAssertion 的「阻止系统睡眠」守护模块；同一时刻只维护一个 Caffeinate Session，到期或 cancel() 即释放。不持久化；进程退出静默释放。
+_Avoid_: 防休眠、Keep Awake
+
+**Caffeinate Session**:
+一次 IOPMAssertion 守护实例：{ bucket, startedAt, endAt }；被 AppState.caffeinateSession 暴露；UI 据此在弹出菜单顶部显示「还剩 Xm/Xs」倒计时。
+_Avoid_: 守护任务、唤醒锁
+
+**Caffeinate Bucket**:
+阻止休眠的预设档位集合：`{30, 60, 120}` 分钟；菜单子菜单列出全部档位，当前生效档位标 ✓。区别于 Daily Usage 里的 Hourly Bucket。
+_Avoid_: 时长档

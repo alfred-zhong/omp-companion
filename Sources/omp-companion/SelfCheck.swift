@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 
 /// 自检入口：纯函数断言。`swift run omp-companion --self-check` 调用。
 public enum SelfCheck {
@@ -76,6 +77,63 @@ public enum SelfCheck {
         check("Provider.minimax", BalanceRegistry.providerID(fromDefaultModel: "minimax/foo") == .minimax)
         check("Provider.minimaxCodeCN", BalanceRegistry.providerID(fromDefaultModel: "minimax-code-cn/MiniMax-M3:high") == .minimaxCodeCN)
         check("Provider.unknown", BalanceRegistry.providerID(fromDefaultModel: "zenmux/foo") == .unknown)
+
+        // CaffeinateBucket
+        check("Bucket.count", CaffeinateBucket.allCases.count == 3)
+        check("Bucket.thirty", CaffeinateBucket.thirtyMinutes.minutes == 30)
+        check("Bucket.sixty", CaffeinateBucket.sixtyMinutes.minutes == 60)
+        check("Bucket.120", CaffeinateBucket.oneTwentyMinutes.minutes == 120)
+        check("Bucket.default", CaffeinateBucket.default == .sixtyMinutes)
+        check("Bucket.raw30", CaffeinateBucket(rawValue: 30) == .thirtyMinutes)
+        check("Bucket.invalid5", CaffeinateBucket(rawValue: 5) == nil)
+
+        // CaffeinateSession
+        do {
+            let now = Date()
+            let s = CaffeinateSession(bucket: .sixtyMinutes, startedAt: now, endAt: now.addingTimeInterval(60))
+            check("Session.active", s.isActive(now: now))
+            check("Session.remaining", abs(s.remainingSeconds(now: now) - 60) < 1e-6)
+            let expired = CaffeinateSession(bucket: .thirtyMinutes, startedAt: now.addingTimeInterval(-120), endAt: now.addingTimeInterval(-60))
+            check("Session.expired", !expired.isActive(now: now))
+        }
+
+        // CountdownFormatter
+        check("Countdown.0", CountdownFormatter.format(remaining: 0) == "0s")
+        check("Countdown.0.5", CountdownFormatter.format(remaining: 0.5) == "1s")
+        check("Countdown.59", CountdownFormatter.format(remaining: 59) == "59s")
+        check("Countdown.60", CountdownFormatter.format(remaining: 60) == "1m")
+        check("Countdown.3540", CountdownFormatter.format(remaining: 3540) == "59m")
+        check("Countdown.3600", CountdownFormatter.format(remaining: 3600) == "60m")
+        check("Countdown.7200", CountdownFormatter.format(remaining: 7200) == "120m")
+
+        // Caffeinate menu semantics
+        do {
+            let active: CaffeinateSession? = CaffeinateSession(
+                bucket: .thirtyMinutes,
+                startedAt: Date(),
+                endAt: Date().addingTimeInterval(1800)
+            )
+            let activeLabel: (CaffeinateBucket) -> String = { b in
+                "\(b.label)\(active?.bucket == b ? " \u{2713}" : "")"
+            }
+            check("BucketMenu.check", activeLabel(.thirtyMinutes) == "30 分钟 \u{2713}")
+            check("BucketMenu.uncheck", activeLabel(.sixtyMinutes) == "60 分钟")
+        }
+
+        // StatusBarTitleComposer
+        do {
+            let plain = StatusBarTitleComposer.compose(balanceText: "¥12.50", isStale: false, caffeinateActive: false)
+            check("Composer.plain", plain.string == "¥12.50")
+            let stale = StatusBarTitleComposer.compose(balanceText: "¥12.50", isStale: true, caffeinateActive: false)
+            check("Composer.stale", stale.string == "¥12.50·off")
+            let active = StatusBarTitleComposer.compose(balanceText: "¥12.50", isStale: false, caffeinateActive: true)
+            check("Composer.active.starts", active.string.hasPrefix("☕ "))
+            check("Composer.active.ends", active.string.hasSuffix("¥12.50"))
+            check("Composer.active.length", active.length == ("☕ ¥12.50" as NSString).length)
+            // prefix 部分应有 foregroundColor 属性。
+            let colorAttr = active.attributes(at: 0, effectiveRange: nil)[.foregroundColor] as? NSColor
+            check("Composer.active.color", colorAttr != nil)
+        }
 
         if failures.isEmpty {
             print("[self-check] OK (全部通过)")
