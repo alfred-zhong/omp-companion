@@ -1,0 +1,15 @@
+# Swift / SwiftPM
+.build/
+.swiftpm/
+Package.resolved
+
+# Build 产物
+build/
+
+# macOS
+.DS_Store
+
+# 编辑器
+.idea/
+.vscode/
+*.swp
