@@ -1,100 +1,88 @@
 import Foundation
-import IOKit.pwr_mgt
 
-/// 阻止系统睡眠 / 显示器睡眠的守护：基于 IOPMAssertion。
+/// 阻止系统睡眠 / 显示器睡眠的守护:基于 IOPMAssertion。
 ///
-/// 单会话模型：调 `start(bucket:)` 即创建 / 续期会话；调 `cancel()` 立即释放。
-/// 不持久化；进程退出即结束。
-public final class SleepGuard: @unchecked Sendable {
+/// 单会话模型:调 `start(bucket:)` 即创建 / 续期会话;调 `cancel()` 立即释放。
+/// 不持久化;进程退出即结束。
+///
+/// @MainActor 化后:所有方法同步在主线程,无需 NSLock / DispatchQueue.main.async。
+/// 资源管理走 `IOPMAssertionAdapter`,1Hz 推进走 `CountdownTicker`。
+@MainActor
+public final class SleepGuard {
     private let state: AppState
-    private var systemAssertionID: IOPMAssertionID = 0
-    private var displayAssertionID: IOPMAssertionID = 0
-    private var timer: Timer?
-    private let lock = NSLock()
+    private let adapter: IOPMAssertionAdapter
+    private let ticker: CountdownTicker
+    private let tickerFactory: () -> CountdownTicker
+    private var currentAssertions: (system: UInt32, display: UInt32) = (0, 0)
 
-    public init(state: AppState) {
+    public init(
+        state: AppState,
+        adapter: IOPMAssertionAdapter = LiveIOPMAssertionAdapter(),
+        ticker: CountdownTicker? = nil
+    ) {
         self.state = state
+        self.adapter = adapter
+        let ticker = ticker ?? TimerCountdownTicker()
+        self.ticker = ticker
+        self.tickerFactory = { ticker }
     }
 
-    deinit {
-        cancel()
+    /// 测试用 init:每次 cancel 后重建 ticker。
+    init(
+        state: AppState,
+        adapter: IOPMAssertionAdapter,
+        tickerFactory: @escaping () -> CountdownTicker
+    ) {
+        self.state = state
+        self.adapter = adapter
+        self.ticker = tickerFactory()
+        self.tickerFactory = tickerFactory
     }
 
     /// 当前是否持有活跃 assertion。
     public var isActive: Bool {
-        lock.lock(); defer { lock.unlock() }
-        return systemAssertionID != 0 || displayAssertionID != 0
+        currentAssertions.system != 0 || currentAssertions.display != 0
     }
 
-    /// 启动或覆盖到指定档位（endAt = now + duration）。
+    /// 启动或覆盖到指定档位(endAt = now + duration)。
     @discardableResult
     public func start(bucket: CaffeinateBucket) -> CaffeinateSession {
+        // 先释放旧 assertion
+        if isActive {
+            adapter.release(system: currentAssertions.system, display: currentAssertions.display)
+            currentAssertions = (0, 0)
+        }
         let now = Date()
         let end = now.addingTimeInterval(TimeInterval(bucket.minutes) * 60)
+        let pair = adapter.acquire(name: "omp-companion: \(bucket.minutes) 分钟")
+        currentAssertions = pair
+        if pair.system == 0 || pair.display == 0 {
+            // acquire 失败:不暴露 session
+            state.setCaffeinateSession(nil)
+            ticker.stop()
+            return CaffeinateSession(bucket: bucket, startedAt: now, endAt: end)
+        }
         let session = CaffeinateSession(bucket: bucket, startedAt: now, endAt: end)
-
-        lock.lock()
-        releaseAssertionsLocked()
-        let systemResult = acquireAssertionLocked(
-            type: "PreventUserIdleSystemSleep" as CFString,
-            name: "omp-companion: 阻止系统休眠 \(bucket.minutes) 分钟"
-        )
-        let displayResult = acquireAssertionLocked(
-            type: "PreventUserIdleDisplaySleep" as CFString,
-            name: "omp-companion: 阻止显示器休眠 \(bucket.minutes) 分钟"
-        )
-        systemAssertionID = systemResult
-        displayAssertionID = displayResult
-        lock.unlock()
-
-        let acquired = systemResult != 0 && displayResult != 0
-        let finalSession = acquired ? session : nil
-        if !acquired {
-            // 部分失败：rollback 任意已建立的
-            lock.lock()
-            releaseAssertionsLocked()
-            lock.unlock()
+        state.setCaffeinateSession(session)
+        ticker.start(interval: 1.0) { [weak self] in
+            self?.advanceTick()
         }
-
-        DispatchQueue.main.async { [weak self] in
-            self?.state.setCaffeinateSession(finalSession)
-            self?.restartTicking()
-        }
-        return finalSession ?? session
+        return session
     }
 
-    /// 立即释放当前会话（无操作时安全）。
+    /// 立即释放当前会话(无操作时安全)。
     public func cancel() {
-        lock.lock()
-        releaseAssertionsLocked()
-        lock.unlock()
-
-        DispatchQueue.main.async { [weak self] in
-            self?.state.setCaffeinateSession(nil)
-            self?.stopTicking()
+        if isActive {
+            adapter.release(system: currentAssertions.system, display: currentAssertions.display)
+            currentAssertions = (0, 0)
         }
+        ticker.stop()
+        state.setCaffeinateSession(nil)
     }
 
-    // MARK: - Timer
-
-    private func restartTicking() {
-        stopTicking()
-        let t = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.tick()
-        }
-        RunLoop.main.add(t, forMode: .common)
-        timer = t
-    }
-
-    private func stopTicking() {
-        timer?.invalidate()
-        timer = nil
-    }
-
-    /// 1 秒一次：检查 endAt；到期就 cancel；推进 countdownTick。
-    private func tick() {
+    private func advanceTick() {
         guard let session = state.caffeinateSession else {
-            stopTicking()
+            ticker.stop()
             return
         }
         let now = Date()
@@ -103,33 +91,5 @@ public final class SleepGuard: @unchecked Sendable {
             return
         }
         state.advanceCountdownTick()
-    }
-
-    // MARK: - IOPMAssertion
-
-    /// 必须在 lock 持锁状态调用；返回 0 表示失败。
-    private func acquireAssertionLocked(type: CFString, name: String) -> IOPMAssertionID {
-        var id: IOPMAssertionID = 0
-        let result = IOPMAssertionCreateWithName(
-            type,
-            IOPMAssertionLevel(kIOPMAssertionLevelOn),
-            name as CFString,
-            &id
-        )
-        if result == kIOReturnSuccess {
-            return id
-        }
-        return 0
-    }
-
-    private func releaseAssertionsLocked() {
-        if systemAssertionID != 0 {
-            IOPMAssertionRelease(systemAssertionID)
-            systemAssertionID = 0
-        }
-        if displayAssertionID != 0 {
-            IOPMAssertionRelease(displayAssertionID)
-            displayAssertionID = 0
-        }
     }
 }

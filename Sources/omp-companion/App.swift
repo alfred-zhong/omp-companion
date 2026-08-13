@@ -37,10 +37,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let creds = CredentialsResolver(homeDir: home, cwd: cwd)
         let config = ConfigSource(homeDir: home, cwd: cwd, env: env)
         let scanner = DailyUsageScanner(sessionsRoot: sessionsRoot)
+        let balanceSource = LiveBalanceSource(config: config, creds: creds)
+        let dailySource = LiveDailyUsageSource(scanner: scanner)
         let controller = RefreshController(
-            config: config,
-            creds: creds,
-            scanner: scanner,
+            balanceSource: balanceSource,
+            dailySource: dailySource,
             state: state,
             intervalSeconds: settingsStore.intervalSeconds
         )

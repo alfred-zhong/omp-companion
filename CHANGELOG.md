@@ -10,6 +10,12 @@
 - 新增 SleepGuard / CountdownFormatter / StatusBarTitleComposer 三个模块；新增领域词 Sleep Guard / Caffeinate Session / Caffeinate Bucket（与 Hourly Bucket 解耦）写入 `CONTEXT.md`
 - 状态栏 `NSButton.title` 改为 `attributedTitle`，文本由纯字符串升级为 `NSAttributedString` 以承载彩色前缀
 - `SelfCheck` 增加 Caffeinate / CountdownFormatter / StatusBarTitleComposer 共 14 条断言，全部通过
+- **架构重构（深度化）**：
+  - 状态栏展示层拆出 `StatusBarPresenter`（`renderTitle` / `renderChrome` / `renderMenu` 三个纯函数），`StatusBarController` 缩为 Timer + Combine + 转发；删除 `StatusBarTitleComposer`（已并入 Presenter 内部 helper）
+  - Refresh pipeline 引入 `BalanceSource` / `DailyUsageSource` 协议 + `LiveBalanceSource` / `LiveDailyUsageSource` / `FakeBalanceSource` / `FakeDailyUsageSource`；`RefreshController` 简化为「两个 source + apply」组合，`SnapshotError` 枚举封装 configMissing / missingCredential / fetchError / scanError
+  - SleepGuard 拆出 `IOPMAssertionAdapter` + `CountdownTicker` 协议，整类 `@MainActor` 化，删除 `NSLock` 与 `DispatchQueue.main.async`
+  - 两个 MiniMax provider 合并为 `MiniMaxRemainsProvider(endpoint:credentialKey:providerID:)`，`BalanceRegistry` 注册两次；`MiniMaxTokenPlanProvider` / `MiniMaxCodingPlanCNProvider` 已删除
+- `SelfCheck` 新增 53 条断言（Presener 22 + Refresh 9 + SleepGuard 13 + MiniMax 9），全部通过
 
 ## 0.1.2 (2026-08-13)
 
