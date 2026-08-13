@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+### 变更
+- 新增根目录 `AGENTS.md`（"Repository Guidelines"）：面向 AI 助手的仓库协作手册，覆盖架构、数据流、目录约定、构建命令、代码 / 错误 / 状态管理 / DI 模式、ADR 落地要点与自检流程
+
 ## 0.1.2 (2026-08-13)
 
 ### 变更
