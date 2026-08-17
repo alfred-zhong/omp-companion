@@ -10,7 +10,6 @@ import Foundation
 public enum StatusBarPresenter {
 
     // MARK: - Inputs
-
     /// 状态栏 / 菜单渲染所需的状态聚合。Controller 负责从 AppState 拉平后传入。
     public struct Inputs: Sendable {
         public let balance: BalanceSnapshot?
@@ -20,6 +19,9 @@ public enum StatusBarPresenter {
         public let lastBalanceError: String?
         public let lastDailyError: String?
         public let daily: DailyUsageSnapshot?
+        /// 当前 provider，logo 由 Controller 独立写 button.image；这里只是传递用，
+        /// 未来 menu/popover 想展示品牌名时也能复用到。
+        public let currentProvider: ProviderID?
 
         public init(
             balance: BalanceSnapshot? = nil,
@@ -28,7 +30,8 @@ public enum StatusBarPresenter {
             caffeinateSession: CaffeinateSession? = nil,
             lastBalanceError: String? = nil,
             lastDailyError: String? = nil,
-            daily: DailyUsageSnapshot? = nil
+            daily: DailyUsageSnapshot? = nil,
+            currentProvider: ProviderID? = nil
         ) {
             self.balance = balance
             self.missingCredential = missingCredential
@@ -37,9 +40,9 @@ public enum StatusBarPresenter {
             self.lastBalanceError = lastBalanceError
             self.lastDailyError = lastDailyError
             self.daily = daily
+            self.currentProvider = currentProvider
         }
     }
-
     // MARK: - ChromeSpec
 
     /// 状态栏 button 的视觉参数。Controller 负责套到 NSButton 上,Presenter 不知道 NSButton 的存在。
@@ -112,20 +115,25 @@ public enum StatusBarPresenter {
     // MARK: - renderTitle
 
     /// 状态栏标题:missingCredential > configMissing > balance > "···"。
-    /// 守护激活时 prefix "☕ " 用咖啡色着色;balance text 周围按需补空格,避免胶囊裁切。
+    /// 守护激活时在余额右侧追加 " ☕"(咖啡色),把视觉焦点留给主信息;
+    /// balance text 周围按需补空格,避免胶囊裁切。
+    /// 所有分支统一在头部补两个 Thin Space(\u{2009} ≈ 0.5pt),拉开 logo 与文字的间距;
+    /// NSButton .imageLeft 自带约 4-5pt 系统间距,这段 padding 让视觉上有一档可感间距差。
+    private static let logoTextGap: String = "\u{2009}\u{2009}"
+    private static let caffeinateSuffix: String = " \u{2615}"
     public static func renderTitle(_ inputs: Inputs) -> NSAttributedString {
         let body: NSAttributedString
         if let missing = inputs.missingCredential {
-            body = NSAttributedString(string: "⚠︎\(missing.prefix(6))")
+            body = NSAttributedString(string: "\(logoTextGap)⚠︎\(missing.prefix(6))")
         } else if inputs.configMissing {
-            body = NSAttributedString(string: "?omp")
+            body = NSAttributedString(string: "\(logoTextGap)?omp")
         } else if let balance = inputs.balance {
             let text = BalanceFormatter.statusBarText(balance.result)
             let active = inputs.caffeinateSession != nil
             let padded = active ? " \(text) " : text
             body = composeBalanced(balanceText: padded, isStale: balance.isStale, caffeinateActive: active)
         } else {
-            body = NSAttributedString(string: "···")
+            body = NSAttributedString(string: "\(logoTextGap)···")
         }
         return body
     }
@@ -137,16 +145,18 @@ public enum StatusBarPresenter {
     ) -> NSAttributedString {
         let text = balanceText + (isStale ? "·off" : "")
         let result = NSMutableAttributedString()
+        result.append(NSAttributedString(string: logoTextGap))
+        result.append(NSAttributedString(string: text))
         if caffeinateActive {
-            let prefix = NSAttributedString(
-                string: "\u{2615} ",
+            let suffix = NSAttributedString(
+                string: caffeinateSuffix,
                 attributes: [.foregroundColor: caffeinateColor]
             )
-            result.append(prefix)
+            result.append(suffix)
         }
-        result.append(NSAttributedString(string: text))
         return result
     }
+
 
     // MARK: - renderChrome
 

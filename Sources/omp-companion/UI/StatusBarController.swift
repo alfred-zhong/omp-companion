@@ -15,7 +15,9 @@ public final class StatusBarController: NSObject, NSMenuDelegate {
     private var onShowSettings: () -> Void
     private var caffeinateHeaderItem: NSMenuItem?
     private var caffeinateHeaderSpec: StatusBarPresenter.MenuItemSpec?
-
+    /// 按 provider + chrome 状态缓存 NSImage(caffeinate 激活时缓存白色副本)。
+    /// key 形如 `provider.rawValue#idle|active`,避免每 tick 重新 lockFocus 渲染。
+    private var logoCacheColored: [String: NSImage] = [:]
     public init(
         controller: RefreshController,
         state: AppState,
@@ -57,8 +59,6 @@ public final class StatusBarController: NSObject, NSMenuDelegate {
         timer = t
     }
 
-    // MARK: - Wiring
-
     private func wireState() {
         let bridge: (Any) -> Void = { [weak self] _ in
             guard let self else { return }
@@ -70,6 +70,10 @@ public final class StatusBarController: NSObject, NSMenuDelegate {
         state.$lastDailyError.receive(on: RunLoop.main).sink { bridge($0) }.store(in: &cancellables)
         state.$configMissing.receive(on: RunLoop.main).sink { bridge($0) }.store(in: &cancellables)
         state.$missingCredential.receive(on: RunLoop.main).sink { bridge($0) }.store(in: &cancellables)
+        state.$currentProvider.receive(on: RunLoop.main).sink { [weak self] _ in
+            guard let self else { return }
+            MainActor.assumeIsolated { self.refreshLogo() }
+        }.store(in: &cancellables)
         state.$caffeinateSession.receive(on: RunLoop.main).sink { bridge($0) }.store(in: &cancellables)
         state.$countdownTick.receive(on: RunLoop.main).sink { [weak self] _ in
             guard let self else { return }
@@ -85,7 +89,8 @@ public final class StatusBarController: NSObject, NSMenuDelegate {
             caffeinateSession: state.caffeinateSession,
             lastBalanceError: state.lastBalanceError,
             lastDailyError: state.lastDailyError,
-            daily: state.daily
+            daily: state.daily,
+            currentProvider: state.currentProvider
         )
     }
 
@@ -96,13 +101,57 @@ public final class StatusBarController: NSObject, NSMenuDelegate {
         let inputs = currentInputs()
         statusItem.button?.attributedTitle = StatusBarPresenter.renderTitle(inputs)
         applyChrome(StatusBarPresenter.renderChrome(inputs))
+        refreshLogo()
+    }
+
+    /// 把当前 provider 的 logo 写到 status button。LogoCatalog 内部已 template 标记。
+    /// caffeinate 激活时(template 在带背景色的 button 上渲染会失效)用一张预填白色的副本,
+    /// 保证 logo 始终与胶囊文字同色。
+    /// 缓存到本地字段,避免每次刷新触发 I/O。
+    @MainActor
+    private func refreshLogo() {
+        let pid = state.currentProvider
+        let key = pid ?? .unknown
+        let active = state.caffeinateSession != nil
+        let cacheKey = "\(key.rawValue)#\(active ? "active" : "idle")"
+        let img: NSImage?
+        if let cached = logoCacheColored[cacheKey] {
+            img = cached
+        } else if let base = LogoCatalog.image(for: key) {
+            img = active ? Self.whiteFilled(template: base) : base
+            logoCacheColored[cacheKey] = img
+        } else {
+            img = nil
+        }
+        statusItem.button?.image = img
+        statusItem.button?.imagePosition = .imageLeft
+    }
+
+
+    /// 把 template image 重新绘制成"alpha mask + 纯白"版本,得到非 template 的白色 image。
+    /// 用于 caffeinate 激活期:`button.contentTintColor` 在带 backgroundColor 的状态下不可靠,
+    /// 直接预乘白色更稳。
+    private static func whiteFilled(template: NSImage) -> NSImage {
+        let size = template.size
+        let out = NSImage(size: size)
+        out.lockFocus()
+        defer { out.unlockFocus() }
+        NSColor.white.setFill()
+        NSBezierPath(rect: NSRect(origin: .zero, size: size)).fill()
+        template.draw(
+            in: NSRect(origin: .zero, size: size),
+            from: NSRect(origin: .zero, size: size),
+            operation: .destinationIn,
+            fraction: 1.0
+        )
+        out.setValue(false, forKey: "template")
+        return out
     }
 
     @MainActor
     private func applyChrome(_ spec: StatusBarPresenter.ChromeSpec) {
         guard let button = statusItem.button else { return }
         button.wantsLayer = true
-        button.layoutSubtreeIfNeeded()
         let h = max(button.bounds.height, 1)
         button.layer?.backgroundColor = spec.background.cgColor
         button.layer?.cornerRadius = spec == .clear

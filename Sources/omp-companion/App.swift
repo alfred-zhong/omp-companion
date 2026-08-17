@@ -15,7 +15,6 @@ public enum OmpCompanion {
         app.run()
     }
 }
-
 public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusBar: StatusBarController?
     private var settingsController: SettingsWindowController?

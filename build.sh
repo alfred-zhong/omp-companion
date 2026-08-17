@@ -26,10 +26,11 @@ mkdir -p "${APP_DIR}/Contents/MacOS"
 mkdir -p "${APP_DIR}/Contents/Resources"
 cp "${BIN_PATH}" "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 cp Resources/Info.plist "${APP_DIR}/Contents/Info.plist"
-
-echo "==> ad-hoc 签名"
-codesign --force --deep --sign - "${APP_DIR}"
-
-echo "==> 完成: ${APP_DIR}"
+# Logo 资源:状态栏供应商图标,template 蒙版。由 LogoCatalog.image(for:) 在 bundle 里查表。
+shopt -s nullglob
+for f in Resources/*.png; do
+    cp "$f" "${APP_DIR}/Contents/Resources/"
+done
+shopt -u nullglob
 echo "    启动: open ${APP_DIR}"
 echo "    调试: ${APP_DIR}/Contents/MacOS/${APP_NAME}"

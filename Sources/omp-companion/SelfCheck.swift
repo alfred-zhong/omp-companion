@@ -153,12 +153,12 @@ public enum SelfCheck {
                 missingCredential: "deepseek 凭据缺失",
                 configMissing: true
             )
-            check("Title.missingCred", StatusBarPresenter.renderTitle(in1).string == "⚠︎deepse")
+            check("Title.missingCred", StatusBarPresenter.renderTitle(in1).string == "\u{2009}\u{2009}⚠︎deepse")
             let in2 = StatusBarPresenter.Inputs(
                 balance: snap,
                 configMissing: true
             )
-            check("Title.configMissing", StatusBarPresenter.renderTitle(in2).string == "?omp")
+            check("Title.configMissing", StatusBarPresenter.renderTitle(in2).string == "\u{2009}\u{2009}?omp")
             let sess = CaffeinateSession(
                 bucket: .sixtyMinutes,
                 startedAt: Date(),
@@ -166,19 +166,23 @@ public enum SelfCheck {
             )
             let in3 = StatusBarPresenter.Inputs(balance: snap, caffeinateSession: sess)
             let active = StatusBarPresenter.renderTitle(in3)
-            check("Title.active.starts", active.string.hasPrefix("☕ "))
+            check("Title.active.gapPrefix", active.string.hasPrefix("\u{2009}\u{2009}"))
+            check("Title.active.balanceBeforeCoffee", active.string.hasPrefix("\u{2009}\u{2009} ¥12.50 "))
             check("Title.active.contains", active.string.contains("¥12.50"))
             check("Title.active.padded", active.string.contains(" ¥12.50 "))
+            check("Title.active.coffeeAtEnd", active.string.hasSuffix(" \u{2615}"))
+            let coffeeIdx = active.string.range(of: "\u{2615}")!.lowerBound
+            let colorAttr = active.attributes(at: active.string.distance(from: active.string.startIndex, to: coffeeIdx),
+                                              effectiveRange: nil)[.foregroundColor] as? NSColor
+            check("Title.active.color", colorAttr != nil)
             let stale = BalanceSnapshot(
                 result: BalanceResult(provider: .deepseek, balance: 12.5, currency: .cny),
                 capturedAt: Date(),
                 isStale: true
             )
             let in4 = StatusBarPresenter.Inputs(balance: stale)
-            check("Title.stale", StatusBarPresenter.renderTitle(in4).string == "¥12.50·off")
-            check("Title.empty", StatusBarPresenter.renderTitle(.init()).string == "···")
-            let colorAttr = active.attributes(at: 0, effectiveRange: nil)[.foregroundColor] as? NSColor
-            check("Title.active.color", colorAttr != nil)
+            check("Title.stale", StatusBarPresenter.renderTitle(in4).string == "\u{2009}\u{2009}¥12.50·off")
+            check("Title.empty", StatusBarPresenter.renderTitle(.init()).string == "\u{2009}\u{2009}···")
         }
 
         // StatusBarPresenter.renderChrome
@@ -408,6 +412,48 @@ public enum SelfCheck {
                 check("MiniMax.codingCN.id", result?.provider == .minimaxCodeCN)
             }
             check("Registry.allCount", BalanceRegistry.all().count == 3)
+        }
+
+        // LogoCatalog：每个 ProviderID 的 PNG 都得真实落盘到仓库 Resources/ 下。
+        // SelfCheck 跑在 `swift run --self-check` 下,Bundle.main 不携带 Resources,
+        // 所以直接探源文件路径 + 实际加载 NSImage。任何文件被误删/格式坏掉 → 立刻暴露。
+        do {
+            let repoRoot = "/Users/alfred/Workspace/github.com/alfred-zhong/omp-companion/Resources"
+            let fm = FileManager.default
+            let needed: [(ProviderID, String)] = [
+                (.deepseek, "provider_deepseek@2x.png"),
+                (.deepseek, "provider_deepseek@3x.png"),
+                (.minimax, "provider_minimax@2x.png"),
+                (.minimax, "provider_minimax@3x.png"),
+                (.unknown, "logo_unknown@2x.png"),
+                (.unknown, "logo_unknown@3x.png"),
+            ]
+            for (pid, name) in needed {
+                let path = "\(repoRoot)/\(name)"
+                check("Logo.asset.\(pid.rawValue).\(name)", fm.fileExists(atPath: path))
+            }
+            // PNG signature + NSImage 可加载,在 swift run 进程里即可完成。
+            let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+            for name in ["provider_deepseek@3x.png", "provider_minimax@3x.png", "logo_unknown@3x.png"] {
+                let url = URL(fileURLWithPath: "\(repoRoot)/\(name)")
+                guard let data = try? Data(contentsOf: url) else {
+                    check("Logo.read.\(name)", false); continue
+                }
+                check("Logo.signature.\(name)", data.count >= 8 && data.subdata(in: 0..<8) == png)
+                let img = NSImage(contentsOf: url)
+                check("Logo.nsimage.\(name)", img != nil)
+            }
+            // LogoCatalog 自身能索引所有 id 且为每个 id 产出 NSImage,
+            // SelfCheck 进程下 Bundle.main 不带 Resources,所以走"由 PNG 直接读取"等价路径:
+            // 把每一张落地 PNG 加载为 NSImage 并标 template,确认 AppKit 能消费。
+            // 注意:NSImage 的 KVC key 是 'template' 而不是 'isTemplate'(ObjC property 名)。
+            for (pid, name) in needed {
+                let url = URL(fileURLWithPath: "\(repoRoot)/\(name)")
+                if let img = NSImage(contentsOf: url) {
+                    img.setValue(true, forKey: "template")
+                    check("Logo.template.\(pid.rawValue).\(name)", img.isTemplate)
+                }
+            }
         }
 
         if failures.isEmpty {
