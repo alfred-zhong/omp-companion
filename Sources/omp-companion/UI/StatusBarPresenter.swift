@@ -202,11 +202,19 @@ public enum StatusBarPresenter {
         var items: [MenuItemSpec] = []
         // 余额行
         if let balance = inputs.balance {
-            let text = BalanceFormatter.statusBarText(balance.result)
+            let text = BalanceFormatter.menuBarText(balance.result)
             items.append(MenuItemSpec(
-                title: "\(balance.result.provider.rawValue) (\(text))",
+                title: "\(balance.result.provider.rawValue): \(text)",
                 enabled: false
             ))
+            if balance.result.currency == .percent,
+               let reset = balance.result.resetRemaining,
+               reset > 0 {
+                items.append(MenuItemSpec(
+                    title: "重置剩余时间: \(BalanceFormatter.formatHMS(reset))",
+                    enabled: false
+                ))
+            }
         } else if let err = inputs.lastBalanceError {
             items.append(MenuItemSpec(title: "余额: \(err)", enabled: false))
         } else {

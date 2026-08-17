@@ -53,10 +53,12 @@ public enum SelfCheck {
         // BalanceFormatter
         let cny = BalanceResult(provider: .deepseek, balance: 12.5, currency: .cny)
         check("Balance.CNY", BalanceFormatter.statusBarText(cny) == "¥12.50")
+        check("Balance.menuBarTextCNY", BalanceFormatter.menuBarText(cny) == "¥12.50")
         let pct1 = BalanceResult(provider: .minimaxCodeCN, balance: 92, currency: .percent, usedPercent: 8, resetRemaining: 4 * 3600 + 30 * 60)
-        check("Balance.pctWithReset", BalanceFormatter.statusBarText(pct1) == "8%: 4h30m")
         let pct2 = BalanceResult(provider: .minimaxCodeCN, balance: 92, currency: .percent, usedPercent: 8, resetRemaining: nil)
-        check("Balance.pctNoReset", BalanceFormatter.statusBarText(pct2) == "8%")
+        check("Balance.menuBarTextPercentWithReset", BalanceFormatter.menuBarText(pct1) == "8%")
+        check("Balance.menuBarTextNoReset", BalanceFormatter.menuBarText(pct2) == "8%")
+        check("Balance.statusBarTextStripsReset", BalanceFormatter.statusBarText(pct1) == "8%")
         check("Balance.hms0", BalanceFormatter.formatHMS(0) == "0h0m")
         check("Balance.hms125", BalanceFormatter.formatHMS(125) == "0h2m")
         check("Balance.hms3661", BalanceFormatter.formatHMS(3661) == "1h1m")
@@ -222,8 +224,17 @@ public enum SelfCheck {
                 .init(balance: snap, caffeinateSession: sess, daily: daily),
                 now: now
             )
-            check("Menu.normal.hasBalance", items.contains { $0.title.contains("deepseek") && $0.title.contains("¥12.50") })
-            check("Menu.normal.hasToday", items.contains { $0.title.hasPrefix("今日") })
+            check("Menu.normal.hasBalance", items.contains { $0.title == "deepseek: ¥12.50" })
+            let pctSnap = BalanceSnapshot(
+                result: BalanceResult(provider: .minimaxCodeCN, balance: 92, currency: .percent, usedPercent: 8, resetRemaining: 4 * 3600 + 30 * 60),
+                capturedAt: Date()
+            )
+            let pctItems = StatusBarPresenter.renderMenu(
+                .init(balance: pctSnap, daily: daily),
+                now: now
+            )
+            check("Menu.normal.percentRow.first", pctItems.contains { $0.title == "minimax-code-cn: 8%" })
+            check("Menu.normal.percentRow.second", pctItems.contains { $0.title == "重置剩余时间: 4h30m" })
             check("Menu.normal.hasLast5h", items.contains { $0.title.hasPrefix("近 5h") })
             check("Menu.normal.hasHeaderTickable", items.contains { $0.tickable })
             check("Menu.normal.hasCaffeinateCancel", items.contains { $0.action == .caffeinateCancel })
