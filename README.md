@@ -18,6 +18,7 @@ Oh My Pi 配套工具：macOS 菜单栏常驻 app，展示 omp 当前默认 Prov
 | DeepSeek | `deepseek/*` | `api.deepseek.com/user/balance` |
 | MiniMax Token Plan | `minimax/*` | `www.minimaxi.com/v1/token_plan/remains` |
 | MiniMax Coding Plan (CN) | `minimax-code-cn/*` | `api.minimaxi.com/v1/coding_plan/remains` |
+| OpenCode Go | `opencode-go/*` | `opencode.ai/zen/go/v1/usage`（5h / 7d / 月度三窗口已用%） |
 
 ## 凭据
 
@@ -28,6 +29,7 @@ Oh My Pi 配套工具：macOS 菜单栏常驻 app，展示 omp 当前默认 Prov
 | DeepSeek | `DEEPSEEK_API_KEY` |
 | MiniMax Token Plan | `MINIMAX_API_KEY` |
 | MiniMax Coding Plan CN | `MINIMAX_CODE_CN_API_KEY` |
+| OpenCode Go | `OPENCODE_API_KEY`（写入 `~/.omp/agent/.env`；`omp login opencode-go` 不自动同步，见 `docs/adr/0005-opencode-go-credential-from-dotenv.md`） |
 
 ## 编译与运行
 

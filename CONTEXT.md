@@ -13,8 +13,13 @@ NSStatusItem 在系统菜单栏中占据的一个槽位及其图标；omp-compan
 _Avoid_: 状态栏图标、状态栏 entry
 
 **Provider**:
-模型服务商（DeepSeek、MiniMax Token Plan、MiniMax Coding Plan 等）；每个 Provider 暴露一个查询余额的 REST 端点与一种鉴权凭据。
+模型服务商或订阅网关（DeepSeek、MiniMax Token Plan、MiniMax Coding Plan、OpenCode Go 等）；每个 Provider 暴露一个查询余额/配额的 REST 端点与一种鉴权凭据。OpenCode Go 是订阅网关：前端多家模型厂商，返回的是额度窗口已用百分比而非货币余额。
 _Avoid_: 服务商、模型提供方、平台
+
+
+**Quota Window**:
+OpenCode Go 订阅的额度窗口：5 小时滚动 / 7 天 / 月度（订阅周年重置）；每窗口由已用百分比（0–100 整数）、状态（正常 / 已限流）、重置时刻组成。状态栏展示 5h 窗口，下拉菜单列出全部窗口。
+_Avoid_: 配额、额度段、时段
 
 
 **Snapshot**:

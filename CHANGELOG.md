@@ -6,12 +6,15 @@
 ### 新增特性
 
 
+- 新增 Provider：OpenCode Go（`opencode-go/*`，opencode.ai 订阅网关）——状态栏展示 5h 滚动窗口已用百分比，下拉菜单平铺 5h / 7d / 月度三窗口明细（各自重置倒计时，≥24h 用 `Xd Yh`；`rate-limited` 窗口标「已限流」）；凭据走 `.env` 链 `OPENCODE_API_KEY`（决策见 `docs/adr/0005-opencode-go-credential-from-dotenv.md`）
+- 菜单栏新增 OpenCode Go 官方品牌 logo（opencode.ai favicon 终端窗框字形蒙版，`provider_opencode_go@2x/3x.png`）
 - 菜单栏在余额 / 用量文字左侧渲染供应商 logo:DeepSeek / MiniMax / Coding Plan (CN) 走各自动蒙版（黑透 PNG），`.unknown` 路由下落回默认问号图
 - 菜单栏加入「阻止系统休眠」（Caffeinate）守护:基于 `IOPMAssertion`,同时阻止系统与显示器空闲睡眠;提供 30 / 60 / 120 分钟三档可重复启动,到期或取消自动释放;进程退出静默释放
 - 状态栏标题在 caffeinate 激活时把咖啡杯标记从 logo 与文字之间移到余额右侧,减少视觉抢戏
 
 ### 变更
 
+- 下拉菜单余额行 provider 前缀改用展示名（`DeepSeek` / `MiniMax Coding Plan CN` / `OpenCode Go`），不再输出原始 provider id
 - 偏好面板刷新间隔由滑块（20-600s）改为三档分段选择：30s / 60s / 120s，默认 60s；存量非法值自动回退默认并写回自愈
 - 移除偏好面板中「开机自启」占位开关（该功能未启用）
 - 菜单栏标题对所有 percent 类型 provider 仅展示「使用额度」（如 `12%`），不再附带过期时间

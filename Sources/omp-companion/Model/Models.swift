@@ -2,15 +2,27 @@ import Foundation
 
 // MARK: - Provider
 
-/// 模型服务商。
+/// 模型服务商或订阅网关。
 public enum ProviderID: String, CaseIterable, Sendable {
     case deepseek
     case minimax
     case minimaxCodeCN = "minimax-code-cn"
+    case opencodeGo = "opencode-go"
     case unknown
 
     public init(rawLowercased: String) {
         self = ProviderID(rawValue: rawLowercased) ?? .unknown
+    }
+
+    /// 面向用户的展示名（菜单余额行等）。
+    public var displayName: String {
+        switch self {
+        case .deepseek: return "DeepSeek"
+        case .minimax: return "MiniMax"
+        case .minimaxCodeCN: return "MiniMax Coding Plan CN"
+        case .opencodeGo: return "OpenCode Go"
+        case .unknown: return "未知"
+        }
     }
 }
 
@@ -23,19 +35,23 @@ public struct BalanceResult: Equatable, Sendable {
     public let currency: BalanceCurrency
     public let usedPercent: Double?
     public let resetRemaining: TimeInterval?
+    /// OpenCode Go 的三窗口配额明细；其它 provider 为 nil。
+    public let quotaWindows: [QuotaWindow]?
 
     public init(
         provider: ProviderID,
         balance: Double,
         currency: BalanceCurrency,
         usedPercent: Double? = nil,
-        resetRemaining: TimeInterval? = nil
+        resetRemaining: TimeInterval? = nil,
+        quotaWindows: [QuotaWindow]? = nil
     ) {
         self.provider = provider
         self.balance = balance
         self.currency = currency
         self.usedPercent = usedPercent
         self.resetRemaining = resetRemaining
+        self.quotaWindows = quotaWindows
     }
 }
 
@@ -49,11 +65,54 @@ public struct BalanceSnapshot: Sendable {
     public let result: BalanceResult
     public let capturedAt: Date
     public let isStale: Bool
+    /// OpenCode Go 三窗口配额明细（由 result.quotaWindows 透传）；其它 provider 为 nil。
+    public let quotaWindows: [QuotaWindow]?
 
-    public init(result: BalanceResult, capturedAt: Date, isStale: Bool = false) {
+    public init(
+        result: BalanceResult,
+        capturedAt: Date,
+        isStale: Bool = false,
+        quotaWindows: [QuotaWindow]? = nil
+    ) {
         self.result = result
         self.capturedAt = capturedAt
         self.isStale = isStale
+        self.quotaWindows = quotaWindows
+    }
+}
+
+// MARK: - Quota Window (OpenCode Go)
+
+/// OpenCode Go 额度窗口状态（服务端原样）：`"ok"` 正常，`"rate-limited"` 已限流。
+public enum QuotaWindowStatus: String, Equatable, Sendable {
+    case ok
+    case rateLimited = "rate-limited"
+}
+
+/// OpenCode Go 订阅的一个额度窗口：5h 滚动 / 7d / 月度（订阅周年重置）。
+public struct QuotaWindow: Equatable, Sendable {
+    /// 窗口标识：`"5h"` | `"7d"` | `"monthly"`。
+    public let id: String
+    /// 展示名：`"5h"` | `"7d"` | `"月度"`。
+    public let label: String
+    /// 已用百分比（0-100，服务端原样，展示层不换算）。
+    public let usedPercent: Int
+    public let status: QuotaWindowStatus
+    /// 服务端下发的重置时刻（ISO）。
+    public let resetsAt: Date
+
+    public init(
+        id: String,
+        label: String,
+        usedPercent: Int,
+        status: QuotaWindowStatus,
+        resetsAt: Date
+    ) {
+        self.id = id
+        self.label = label
+        self.usedPercent = usedPercent
+        self.status = status
+        self.resetsAt = resetsAt
     }
 }
 

@@ -214,12 +214,17 @@ public enum StatusBarPresenter {
         if let balance = inputs.balance {
             let text = BalanceFormatter.menuBarText(balance.result)
             items.append(MenuItemSpec(
-                title: "\(balance.result.provider.rawValue): \(text)",
+                title: "\(balance.result.provider.displayName): \(text)",
                 enabled: false
             ))
-            if balance.result.currency == .percent,
-               let reset = balance.result.resetRemaining,
-               reset > 0 {
+            if let windows = balance.quotaWindows, !windows.isEmpty {
+                // OpenCode Go：平铺三窗口明细（含各自重置倒计时），不再走通用 reset 行。
+                for w in windows {
+                    items.append(MenuItemSpec(title: quotaRow(w, now: now), enabled: false))
+                }
+            } else if balance.result.currency == .percent,
+                      let reset = balance.result.resetRemaining,
+                      reset > 0 {
                 items.append(MenuItemSpec(
                     title: "重置剩余时间: \(BalanceFormatter.formatHMS(reset))",
                     enabled: false
@@ -256,6 +261,19 @@ public enum StatusBarPresenter {
         items.append(.separator)
         items.append(MenuItemSpec(title: "退出", key: "q", action: .quit))
         return items
+    }
+
+    /// OpenCode Go 单窗口菜单行：`5h · 已用 67% · 3h15m 后重置`；已限流窗口追加 `· 已限流`。
+    private static func quotaRow(_ w: QuotaWindow, now: Date) -> String {
+        var s = "\(w.label) · 已用 \(w.usedPercent)%"
+        let remain = w.resetsAt.timeIntervalSince(now)
+        if remain > 0 {
+            s += " · \(BalanceFormatter.formatDuration(remain)) 后重置"
+        }
+        if w.status == .rateLimited {
+            s += " · 已限流"
+        }
+        return s
     }
 
     private static func dailyLine(prefix: String, stats: TokenStats) -> String {

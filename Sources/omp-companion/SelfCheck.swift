@@ -62,6 +62,10 @@ public enum SelfCheck {
         check("Balance.hms0", BalanceFormatter.formatHMS(0) == "0h0m")
         check("Balance.hms125", BalanceFormatter.formatHMS(125) == "0h2m")
         check("Balance.hms3661", BalanceFormatter.formatHMS(3661) == "1h1m")
+        check("Duration.hms", BalanceFormatter.formatDuration(3 * 3600 + 15 * 60) == "3h15m")
+        check("Duration.23h59m", BalanceFormatter.formatDuration(86399) == "23h59m")
+        check("Duration.1d", BalanceFormatter.formatDuration(86400) == "1d")
+        check("Duration.5d3h", BalanceFormatter.formatDuration(5 * 86400 + 3 * 3600) == "5d 3h")
 
         // HourlyAggregator
         do {
@@ -98,6 +102,8 @@ public enum SelfCheck {
         check("Provider.deepseek", BalanceRegistry.providerID(fromDefaultModel: "deepseek/foo:high") == .deepseek)
         check("Provider.minimax", BalanceRegistry.providerID(fromDefaultModel: "minimax/foo") == .minimax)
         check("Provider.minimaxCodeCN", BalanceRegistry.providerID(fromDefaultModel: "minimax-code-cn/MiniMax-M3:high") == .minimaxCodeCN)
+        check("Provider.opencodeGo", BalanceRegistry.providerID(fromDefaultModel: "opencode-go/deepseek-v4-flash:high") == .opencodeGo)
+        check("Provider.opencodeZenUnknown", BalanceRegistry.providerID(fromDefaultModel: "opencode-zen/foo") == .unknown)
         check("Provider.unknown", BalanceRegistry.providerID(fromDefaultModel: "zenmux/foo") == .unknown)
 
         // CaffeinateBucket
@@ -237,7 +243,7 @@ public enum SelfCheck {
                 .init(balance: snap, caffeinateSession: sess, daily: daily),
                 now: now
             )
-            check("Menu.normal.hasBalance", items.contains { $0.title == "deepseek: ¥12.50" })
+            check("Menu.normal.hasBalance", items.contains { $0.title == "DeepSeek: ¥12.50" })
             let pctSnap = BalanceSnapshot(
                 result: BalanceResult(provider: .minimaxCodeCN, balance: 92, currency: .percent, usedPercent: 8, resetRemaining: 4 * 3600 + 30 * 60),
                 capturedAt: Date()
@@ -246,8 +252,25 @@ public enum SelfCheck {
                 .init(balance: pctSnap, daily: daily),
                 now: now
             )
-            check("Menu.normal.percentRow.first", pctItems.contains { $0.title == "minimax-code-cn: 8%" })
+            check("Menu.normal.percentRow.first", pctItems.contains { $0.title == "MiniMax Coding Plan CN: 8%" })
             check("Menu.normal.percentRow.second", pctItems.contains { $0.title == "重置剩余时间: 4h30m" })
+            // OpenCode Go：余额行用 displayName，三窗口平铺，不再走通用 reset 行
+            let qs: [QuotaWindow] = [
+                QuotaWindow(id: "5h", label: "5h", usedPercent: 67, status: .ok, resetsAt: now.addingTimeInterval(3 * 3600 + 15 * 60)),
+                QuotaWindow(id: "7d", label: "7d", usedPercent: 12, status: .ok, resetsAt: now.addingTimeInterval(5 * 86400 + 3 * 3600)),
+                QuotaWindow(id: "monthly", label: "月度", usedPercent: 3, status: .rateLimited, resetsAt: now.addingTimeInterval(86400)),
+            ]
+            let ocSnap = BalanceSnapshot(
+                result: BalanceResult(provider: .opencodeGo, balance: 67, currency: .percent, usedPercent: 67),
+                capturedAt: Date(),
+                quotaWindows: qs
+            )
+            let ocItems = StatusBarPresenter.renderMenu(.init(balance: ocSnap, daily: daily), now: now)
+            check("Menu.opencode.balanceRow", ocItems.contains { $0.title == "OpenCode Go: 67%" })
+            check("Menu.opencode.rollingRow", ocItems.contains { $0.title == "5h · 已用 67% · 3h15m 后重置" })
+            check("Menu.opencode.weeklyRow", ocItems.contains { $0.title == "7d · 已用 12% · 5d 3h 后重置" })
+            check("Menu.opencode.monthlyRow", ocItems.contains { $0.title == "月度 · 已用 3% · 1d 后重置 · 已限流" })
+            check("Menu.opencode.noGenericReset", !ocItems.contains { $0.title.hasPrefix("重置剩余时间") })
             check("Menu.normal.hasLast5h", items.contains { $0.title.hasPrefix("近 5h") })
             check("Menu.normal.hasHeaderTickable", items.contains { $0.tickable })
             check("Menu.normal.hasCaffeinateCancel", items.contains { $0.action == .caffeinateCancel })
@@ -417,10 +440,82 @@ public enum SelfCheck {
                         return try? await p.fetch(creds: creds, http: FakeHTTP(body: body))
                     }
                 }
-                check("MiniMax.zeroReset", result?.resetRemaining == 0)
-                check("MiniMax.codingCN.id", result?.provider == .minimaxCodeCN)
+            check("MiniMax.zeroReset", result?.resetRemaining == 0)
+            check("MiniMax.codingCN.id", result?.provider == .minimaxCodeCN)
+        }
+        // OpenCode Go 解码：三窗口全量 + used 语义 + all-or-nothing
+        do {
+            let p = BalanceRegistry.opencodeGo()
+            let body = #"{"usage":{"rolling":{"percent":67,"status":"ok","resetsAt":"2026-08-19T12:00:00Z"},"weekly":{"percent":12,"status":"ok","resetsAt":"2026-08-25T12:00:00Z"},"monthly":{"percent":3,"status":"rate-limited","resetsAt":"2026-09-03T12:00:00Z"}}}"#
+            let result: BalanceResult? = withCreds("OPENCODE_API_KEY", "test") {
+                sync { () -> BalanceResult? in
+                    let creds = CredentialsResolver()
+                    return try? await p.fetch(creds: creds, http: FakeHTTP(body: body))
+                }
             }
-            check("Registry.allCount", BalanceRegistry.all().count == 3)
+            let expRolling = ISO8601DateFormatter().date(from: "2026-08-19T12:00:00Z")!
+            check("OpenCode.id", result?.provider == .opencodeGo)
+            check("OpenCode.rolling.balance", result?.balance == 67)
+            check("OpenCode.rolling.used", result?.usedPercent == 67)
+            check("OpenCode.windows.count", result?.quotaWindows?.count == 3)
+            check("OpenCode.windows.order", result?.quotaWindows?.map(\.id) == ["5h", "7d", "monthly"])
+            check("OpenCode.windows.rolling.resetsAt", result?.quotaWindows?[0].resetsAt == expRolling)
+            check("OpenCode.windows.rolling.used", result?.quotaWindows?[0].usedPercent == 67)
+            check("OpenCode.windows.weekly.used", result?.quotaWindows?[1].usedPercent == 12)
+            check("OpenCode.windows.monthly.used", result?.quotaWindows?[2].usedPercent == 3)
+            check("OpenCode.windows.monthly.limited", result?.quotaWindows?[2].status == .rateLimited)
+            check("OpenCode.resetRemaining", abs((result?.resetRemaining ?? -999) - expRolling.timeIntervalSince(Date())) < 5)
+        }
+        do {
+            // live 响应形状：resetsAt 带小数秒（ISO8601DateFormatter 默认格式解析不了，走 fallback）
+            let p = BalanceRegistry.opencodeGo()
+            let body = #"{"usage":{"rolling":{"percent":28,"status":"ok","resetsAt":"2026-08-19T13:02:42.270Z"},"weekly":{"percent":11,"status":"ok","resetsAt":"2026-08-24T00:00:00.270Z"},"monthly":{"percent":5,"status":"ok","resetsAt":"2026-09-19T07:59:11.270Z"}}}"#
+            let result: BalanceResult? = withCreds("OPENCODE_API_KEY", "test") {
+                sync { () -> BalanceResult? in
+                    let creds = CredentialsResolver()
+                    return try? await p.fetch(creds: creds, http: FakeHTTP(body: body))
+                }
+            }
+            check("OpenCode.liveShape.count", result?.quotaWindows?.count == 3)
+            check("OpenCode.liveShape.rolling", result?.quotaWindows?[0].usedPercent == 28)
+            check("OpenCode.liveShape.weekly", result?.quotaWindows?[1].usedPercent == 11)
+            check("OpenCode.liveShape.monthly", result?.quotaWindows?[2].usedPercent == 5)
+        }
+        do {
+            // 缺 monthly 窗口 → all-or-nothing → invalidResponse
+            let p = BalanceRegistry.opencodeGo()
+            let body = #"{"usage":{"rolling":{"percent":10,"status":"ok","resetsAt":"2026-08-19T12:00:00Z"},"weekly":{"percent":10,"status":"ok","resetsAt":"2026-08-25T12:00:00Z"}}}"#
+            var thrown: HTTPError?
+            withCreds("OPENCODE_API_KEY", "test") {
+                sync {
+                    let creds = CredentialsResolver()
+                    do {
+                        _ = try await p.fetch(creds: creds, http: FakeHTTP(body: body))
+                    } catch let e as HTTPError {
+                        thrown = e
+                    } catch {}
+                }
+            }
+            check("OpenCode.missingWindow.throws", thrown == .invalidResponse)
+        }
+        do {
+            // percent 越界 → malformed → invalidResponse
+            let p = BalanceRegistry.opencodeGo()
+            let body = #"{"usage":{"rolling":{"percent":150,"status":"ok","resetsAt":"2026-08-19T12:00:00Z"},"weekly":{"percent":10,"status":"ok","resetsAt":"2026-08-25T12:00:00Z"},"monthly":{"percent":3,"status":"ok","resetsAt":"2026-09-03T12:00:00Z"}}}"#
+            var thrown: HTTPError?
+            withCreds("OPENCODE_API_KEY", "test") {
+                sync {
+                    let creds = CredentialsResolver()
+                    do {
+                        _ = try await p.fetch(creds: creds, http: FakeHTTP(body: body))
+                    } catch let e as HTTPError {
+                        thrown = e
+                    } catch {}
+                }
+            }
+            check("OpenCode.badPercent.throws", thrown == .invalidResponse)
+        }
+            check("Registry.allCount", BalanceRegistry.all().count == 4)
         }
 
         // LogoCatalog：每个 ProviderID 的 PNG 都得真实落盘到仓库 Resources/ 下。
@@ -434,6 +529,8 @@ public enum SelfCheck {
                 (.deepseek, "provider_deepseek@3x.png"),
                 (.minimax, "provider_minimax@2x.png"),
                 (.minimax, "provider_minimax@3x.png"),
+                (.opencodeGo, "provider_opencode_go@2x.png"),
+                (.opencodeGo, "provider_opencode_go@3x.png"),
                 (.unknown, "logo_unknown@2x.png"),
                 (.unknown, "logo_unknown@3x.png"),
             ]
@@ -443,7 +540,7 @@ public enum SelfCheck {
             }
             // PNG signature + NSImage 可加载,在 swift run 进程里即可完成。
             let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
-            for name in ["provider_deepseek@3x.png", "provider_minimax@3x.png", "logo_unknown@3x.png"] {
+            for name in ["provider_deepseek@3x.png", "provider_minimax@3x.png", "provider_opencode_go@3x.png", "logo_unknown@3x.png"] {
                 let url = URL(fileURLWithPath: "\(repoRoot)/\(name)")
                 guard let data = try? Data(contentsOf: url) else {
                     check("Logo.read.\(name)", false); continue

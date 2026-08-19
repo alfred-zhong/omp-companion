@@ -31,7 +31,11 @@ public struct LiveBalanceSource: BalanceSource {
         }
         do {
             let result = try await provider.fetch(creds: creds, http: http)
-            let snap = BalanceSnapshot(result: result, capturedAt: now)
+            let snap = BalanceSnapshot(
+                result: result,
+                capturedAt: now,
+                quotaWindows: result.quotaWindows
+            )
             return (snap, nil)
         } catch {
             return (nil, .fetchError(humanReadable(error)))

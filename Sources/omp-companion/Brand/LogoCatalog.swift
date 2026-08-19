@@ -18,6 +18,7 @@ public enum LogoCatalog {
         case .deepseek:        return "provider_deepseek"
         case .minimax,
              .minimaxCodeCN:  return "provider_minimax"
+        case .opencodeGo:      return "provider_opencode_go"
         case .unknown:         return "logo_unknown"
         }
     }

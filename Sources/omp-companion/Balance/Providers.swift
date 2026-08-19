@@ -94,11 +94,112 @@ public struct MiniMaxRemainsProvider: BalanceProvider {
     }
 }
 
+// MARK: - OpenCode Go
+
+/// OpenCode Go（opencode.ai 订阅网关）余额 provider：
+/// `GET https://opencode.ai/zen/go/v1/usage`，`Authorization: Bearer <OPENCODE_API_KEY>`。
+///
+/// 端点 first-party 但未文档化（见 omp `@oh-my-pi/pi-ai/src/usage/opencode-go.ts`）：
+/// 响应 `{ "usage": { rolling|weekly|monthly: { percent, status, resetsAt } } }`
+/// - `percent`：**已用**百分比（0-100 整数，服务端 floor+clamp；展示层不换算）
+/// - `status`：`"ok"` | `"rate-limited"`
+/// - `resetsAt`：ISO 时间戳；monthly 锚定订阅周年（非 30 天滚动）
+///
+/// 状态栏主窗口取 rolling（5h），全部三窗口经 `BalanceResult.quotaWindows` 带出供菜单展示。
+/// 解码 all-or-nothing：任一窗口缺失 / malformed → `invalidResponse`（与 omp 语义一致）。
+public struct OpenCodeGoProvider: BalanceProvider {
+    public let id: ProviderID = .opencodeGo
+    private let endpoint = URL(string: "https://opencode.ai/zen/go/v1/usage")!
+
+    public init() {}
+
+    public func hasCredential(creds: CredentialsResolver) -> Bool {
+        creds.resolve("OPENCODE_API_KEY") != nil
+    }
+
+    public func fetch(creds: CredentialsResolver, http: HTTPClient) async throws -> BalanceResult {
+        guard let key = creds.resolve("OPENCODE_API_KEY") else {
+            throw HTTPError.missingCredential
+        }
+        let (data, _): (Data, HTTPURLResponse)
+        do {
+            (data, _) = try await http.get(
+                url: endpoint,
+                headers: ["Authorization": "Bearer \(key)"],
+                timeoutSeconds: 10
+            )
+        } catch HTTPError.server(status: 403) {
+            // 403 = 无 Go 订阅（与 401 同属"凭据/订阅失效"，omp 同语义）。
+            throw HTTPError.unauthorized
+        }
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+        guard let usage = json?["usage"] as? [String: Any] else {
+            throw HTTPError.invalidResponse
+        }
+        let windows = try Self.decodeWindows(usage)
+        guard let rolling = windows.first(where: { $0.id == "5h" }) else {
+            throw HTTPError.invalidResponse
+        }
+        let used = rolling.usedPercent
+        let reset = max(0, rolling.resetsAt.timeIntervalSince(Date()))
+        return BalanceResult(
+            provider: .opencodeGo,
+            balance: Double(used),
+            currency: .percent,
+            usedPercent: Double(used),
+            resetRemaining: reset,
+            quotaWindows: windows
+        )
+    }
+
+    /// 三窗口全量解码；任一窗口 malformed → throw，不返回半截报告。
+    private static func decodeWindows(_ usage: [String: Any]) throws -> [QuotaWindow] {
+        let descriptors: [(key: String, id: String, label: String)] = [
+            ("rolling", "5h", "5h"),
+            ("weekly", "7d", "7d"),
+            ("monthly", "monthly", "月度"),
+        ]
+        var out: [QuotaWindow] = []
+        out.reserveCapacity(descriptors.count)
+        for d in descriptors {
+            guard let raw = usage[d.key] as? [String: Any],
+                  let percentNum = raw["percent"] as? NSNumber,
+                  let statusRaw = raw["status"] as? String,
+                  let resetsAtRaw = raw["resetsAt"] as? String,
+                  let resetsAt = Self.parseISO(resetsAtRaw),
+                  let status = QuotaWindowStatus(rawValue: statusRaw)
+            else {
+                throw HTTPError.invalidResponse
+            }
+            let percent = percentNum.doubleValue
+            guard percent.isFinite, percent >= 0, percent <= 100 else {
+                throw HTTPError.invalidResponse
+            }
+            out.append(QuotaWindow(
+                id: d.id,
+                label: d.label,
+                usedPercent: Int(percent),
+                status: status,
+                resetsAt: resetsAt
+            ))
+        }
+        return out
+    }
+
+    /// ISO 时间戳解析：默认格式先试（`…T12:00:00Z`），失败再试带小数秒（live 响应形状 `…T13:02:42.270Z`）。
+    private static func parseISO(_ s: String) -> Date? {
+        if let d = ISO8601DateFormatter().date(from: s) { return d }
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f.date(from: s)
+    }
+}
+
 // MARK: - Registry
 
 public enum BalanceRegistry {
     public static func all() -> [BalanceProvider] {
-        [DeepSeekProvider(), tokenPlan(), codingPlanCN()]
+        [DeepSeekProvider(), tokenPlan(), codingPlanCN(), opencodeGo()]
     }
 
     public static func provider(for id: ProviderID) -> BalanceProvider? {
@@ -106,8 +207,13 @@ public enum BalanceRegistry {
         case .deepseek: return DeepSeekProvider()
         case .minimax: return tokenPlan()
         case .minimaxCodeCN: return codingPlanCN()
+        case .opencodeGo: return opencodeGo()
         case .unknown: return nil
         }
+    }
+
+    public static func opencodeGo() -> OpenCodeGoProvider {
+        OpenCodeGoProvider()
     }
 
     public static func tokenPlan() -> MiniMaxRemainsProvider {

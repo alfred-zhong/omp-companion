@@ -31,4 +31,15 @@ public enum BalanceFormatter {
         let m = (total % 3600) / 60
         return "\(h)h\(m)m"
     }
+
+    /// 倒计时文案：≥24h 用 `Xd Yh`（避免 weekly 窗口显示 `167h59m`），否则复用 `HhMm`。
+    public static func formatDuration(_ seconds: TimeInterval) -> String {
+        let total = Int(seconds.rounded())
+        let day = total / 86400
+        if day >= 1 {
+            let h = (total % 86400) / 3600
+            return h > 0 ? "\(day)d \(h)h" : "\(day)d"
+        }
+        return formatHMS(TimeInterval(total))
+    }
 }
