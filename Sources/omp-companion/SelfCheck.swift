@@ -109,6 +109,15 @@ public enum SelfCheck {
         check("Bucket.raw30", CaffeinateBucket(rawValue: 30) == .thirtyMinutes)
         check("Bucket.invalid5", CaffeinateBucket(rawValue: 5) == nil)
 
+        // RefreshInterval
+        check("Interval.count", RefreshInterval.allCases.count == 3)
+        check("Interval.seconds30", RefreshInterval.seconds30.seconds == 30)
+        check("Interval.seconds60", RefreshInterval.seconds60.seconds == 60)
+        check("Interval.seconds120", RefreshInterval.seconds120.seconds == 120)
+        check("Interval.default", RefreshInterval.default == .seconds60)
+        check("Interval.raw30", RefreshInterval(rawValue: 30) == .seconds30)
+        check("Interval.invalid999", RefreshInterval(rawValue: 999) == nil)
+
         // CaffeinateSession
         do {
             let now = Date()

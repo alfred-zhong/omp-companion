@@ -171,3 +171,16 @@ public struct CaffeinateSession: Equatable, Sendable {
         endAt > now
     }
 }
+
+// MARK: - RefreshInterval (刷新间隔)
+
+/// 偏好面板的刷新间隔档位：固定三档，默认 60s。
+public enum RefreshInterval: Int, CaseIterable, Sendable {
+    case seconds30  = 30
+    case seconds60  = 60
+    case seconds120 = 120
+
+    public var seconds: TimeInterval { TimeInterval(rawValue) }
+
+    public static let `default`: RefreshInterval = .seconds60
+}

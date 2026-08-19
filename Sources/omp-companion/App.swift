@@ -42,7 +42,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             balanceSource: balanceSource,
             dailySource: dailySource,
             state: state,
-            intervalSeconds: settingsStore.intervalSeconds
+            intervalSeconds: settingsStore.intervalSeconds.seconds
         )
         self.refreshController = controller
 
@@ -50,7 +50,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         self.sleepGuard = guard_
 
         let settingsCtrl = SettingsWindowController { [weak controller] newInterval in
-            controller?.intervalSeconds = newInterval
+            controller?.intervalSeconds = newInterval.seconds
         }
         self.settingsController = settingsCtrl
 

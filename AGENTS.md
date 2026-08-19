@@ -115,7 +115,7 @@ do {
 ### 状态管理与 DI
 
 - `AppState`（`final class : ObservableObject, @unchecked Sendable`）持有六个 `@Published`：`balance`, `daily`, `lastBalanceError`, `lastDailyError`, `configMissing`, `missingCredential`。**所有修改必须经过 setter**，Setter 都在主线程被调用。
-- `RefreshController` 是 `final class, @unchecked Sendable`；`let` 协作对象 + `var intervalSeconds`（由 SwiftUI slider 闭包写回）。
+- `RefreshController` 是 `final class, @unchecked Sendable`；`let` 协作对象 + `var intervalSeconds`（由 SwiftUI picker 闭包写回）。
 - `StatusBarController` 用 `Set<AnyCancellable>` 收 `@Published`；`Timer` 在 `deinit` 与 `restartTimer()` 中 `invalidate()`。
 - DI 通过构造器注入（`CredentialsResolver` / `ConfigSource` / `DailyUsageScanner` / `SettingsStore`）。不要引入 Service Locator 或全局单例。
 
@@ -164,7 +164,7 @@ do {
 - **构建工具**：SwiftPM 5.9（`swift build`）+ bash。`xcodebuild` 不需要。
 - **包管理器**：SwiftPM（`Package.swift`）；不要新增 Conan / CocoaPods / Carthage。
 - **签发**：仅本机 ad-hoc（`codesign --force --deep --sign -`），**不做 Developer ID 公证**，不在 release 流程加。
-- **代码签名约束**：不要新增 `LaunchAgent plist`、不要在仓库里写 `~/Library/LaunchAgents/*.plist`；开机自启当前 disabled。
+- **代码签名约束**：不要新增 `LaunchAgent plist`、不要在仓库里写 `~/Library/LaunchAgents/*.plist`。
 - **凭据**：仅从 `.env` 链读取，不读 Keychain。
 - **安全**：provider 请求走 `URLSession.shared`，未配 `NSAppTransportSecurity` 例外；新增端点必须 HTTPS。
 
@@ -182,7 +182,7 @@ swift run omp-companion --self-check   # 期望 [self-check] OK (全部通过)
 ./build.sh                              # 出 build/omp-companion.app
 ```
 
-- **手动烟测**：`open build/omp-companion.app` 后看菜单栏标题是否渲染为余额 / `¥X.XX` / `X%: YhYm`；触发"立即刷新"是否即时重抓；偏好面板 slider 改变是否在 ~1 个 tick 内生效。
+- **手动烟测**：`open build/omp-companion.app` 后看菜单栏标题是否渲染为余额 / `¥X.XX` / `X%: YhYm`；触发"立即刷新"是否即时重抓；偏好面板切换刷新档位是否在 ~1 个 tick 内生效。
 - **不要**靠 unit test 覆盖率衡量进度；PR 当前靠 `SelfCheck` + 人工菜单栏检查。
 
 ## 与上游决策保持一致（提交前对照）

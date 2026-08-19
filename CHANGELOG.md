@@ -12,6 +12,8 @@
 
 ### 变更
 
+- 偏好面板刷新间隔由滑块（20-600s）改为三档分段选择：30s / 60s / 120s，默认 60s；存量非法值自动回退默认并写回自愈
+- 移除偏好面板中「开机自启」占位开关（该功能未启用）
 - 菜单栏标题对所有 percent 类型 provider 仅展示「使用额度」（如 `12%`），不再附带过期时间
 - 下拉菜单余额行统一为 `provider: 余额` 格式:percent 类型如 `minimax-code-cn: 8%`,有 reset 时 reset 单独起一行 `重置剩余时间: 4h30m`(无 reset 时只有一行);cny 类型如 `deepseek: ¥12.50`
 - `BalanceFormatter.menuBarText` 收紧为纯余额段(percent 只返回 `"8%"`,reset 文案改由 `StatusBarPresenter.normalMenu` 拼装第二行)

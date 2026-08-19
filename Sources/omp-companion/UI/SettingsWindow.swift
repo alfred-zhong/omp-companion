@@ -2,26 +2,27 @@ import AppKit
 import SwiftUI
 
 public final class SettingsStore: ObservableObject, @unchecked Sendable {
-    @Published public var intervalSeconds: Double {
-        didSet { UserDefaults.standard.set(intervalSeconds, forKey: "intervalSeconds") }
-    }
-    @Published public var launchAtLogin: Bool {
-        didSet { UserDefaults.standard.set(launchAtLogin, forKey: "launchAtLogin") }
+    @Published public var intervalSeconds: RefreshInterval {
+        didSet { UserDefaults.standard.set(intervalSeconds.rawValue, forKey: "intervalSeconds") }
     }
 
     public init() {
         let stored = UserDefaults.standard.double(forKey: "intervalSeconds")
-        self.intervalSeconds = stored > 0 ? stored : 60
-        self.launchAtLogin = UserDefaults.standard.bool(forKey: "launchAtLogin")
+        let interval = RefreshInterval(rawValue: Int(stored)) ?? .default
+        if stored > 0, interval.rawValue != Int(stored) {
+            // 存量脏值（非 30/60/120）回退默认并写回自愈。
+            UserDefaults.standard.set(interval.rawValue, forKey: "intervalSeconds")
+        }
+        self.intervalSeconds = interval
     }
 }
 
 public final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
-    private let onIntervalChange: (Double) -> Void
+    private let onIntervalChange: (RefreshInterval) -> Void
     private weak var statusBar: StatusBarController?
 
-    public init(onIntervalChange: @escaping (Double) -> Void) {
+    public init(onIntervalChange: @escaping (RefreshInterval) -> Void) {
         self.onIntervalChange = onIntervalChange
     }
 
@@ -41,7 +42,7 @@ public final class SettingsWindowController: NSObject, NSWindowDelegate {
         })
         let host = NSHostingController(rootView: view)
         let w = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 200),
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 90),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -63,31 +64,20 @@ public final class SettingsWindowController: NSObject, NSWindowDelegate {
 
 private struct SettingsView: View {
     @ObservedObject var store: SettingsStore
-    let onIntervalChange: (Double) -> Void
+    let onIntervalChange: (RefreshInterval) -> Void
 
     var body: some View {
-        Form {
-            Section(header: Text("刷新")) {
-                HStack {
-                    Text("刷新间隔")
-                    Slider(value: $store.intervalSeconds, in: 20...600, step: 10) { editing in
-                        if !editing { onIntervalChange(store.intervalSeconds) }
-                    }
-                    Text("\(Int(store.intervalSeconds))s")
-                        .monospacedDigit()
-                        .frame(width: 60, alignment: .trailing)
+        HStack {
+            Text("刷新间隔")
+            Picker("刷新间隔", selection: $store.intervalSeconds) {
+                ForEach(RefreshInterval.allCases, id: \.self) { option in
+                    Text("\(option.rawValue)s").tag(option)
                 }
             }
-            Section(header: Text("启动")) {
-                Toggle("开机自启（占位，本版本不启用）", isOn: $store.launchAtLogin)
-                    .disabled(true)
-            }
-            Section(header: Text("关于")) {
-                Button("打开 README") {
-                    if let url = URL(string: "https://github.com/alfred-zhong/omp-companion") {
-                        NSWorkspace.shared.open(url)
-                    }
-                }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .onChange(of: store.intervalSeconds) { newValue in
+                onIntervalChange(newValue)
             }
         }
         .padding(20)

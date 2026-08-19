@@ -65,5 +65,4 @@ swift run omp-companion --self-check
 
 - 鉴权 token 仅从 .env 链读取，不读 Keychain
 - runtime 覆盖（`--model` / `--smol` / env vars）不可见（决策见 ADR-0001）
-- 开机自启未启用
 - 本机 ad-hoc 签名，未做 Developer ID 公证
