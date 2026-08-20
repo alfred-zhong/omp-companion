@@ -35,7 +35,7 @@ public struct BalanceResult: Equatable, Sendable {
     public let currency: BalanceCurrency
     public let usedPercent: Double?
     public let resetRemaining: TimeInterval?
-    /// OpenCode Go 的三窗口配额明细；其它 provider 为 nil。
+    /// 额度窗口：OpenCode Go 三窗口 / MiniMax interval 窗口；其它 provider 为 nil。
     public let quotaWindows: [QuotaWindow]?
 
     public init(
@@ -89,11 +89,12 @@ public enum QuotaWindowStatus: String, Equatable, Sendable {
     case rateLimited = "rate-limited"
 }
 
-/// OpenCode Go 订阅的一个额度窗口：5h 滚动 / 7d / 月度（订阅周年重置）。
+/// 一个额度窗口：OpenCode Go 的 5h 滚动 / 7d / 月度（订阅周年重置），
+/// 或 MiniMax 的 interval 滚动窗口（时长随套餐变化）。
 public struct QuotaWindow: Equatable, Sendable {
-    /// 窗口标识：`"5h"` | `"7d"` | `"monthly"`。
+    /// 窗口标识：OpenCode Go `"5h"` | `"7d"` | `"monthly"`；MiniMax 为推导标签（如 `"5h"`）。
     public let id: String
-    /// 展示名：`"5h"` | `"7d"` | `"月度"`。
+    /// 展示名：`"5h"` | `"7d"` | `"月度"`；MiniMax 与 id 同值。
     public let label: String
     /// 已用百分比（0-100，服务端原样，展示层不换算）。
     public let usedPercent: Int

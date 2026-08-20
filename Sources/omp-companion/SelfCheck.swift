@@ -242,18 +242,28 @@ public enum SelfCheck {
                 .init(balance: snap, caffeinateSession: sess, daily: daily),
                 now: now
             )
-            check("Menu.normal.hasBalance", items.contains { $0.title == "DeepSeek: ¥12.50" })
+            check("Menu.normal.hasBalance", items.contains { $0.title == "DeepSeek" } && items.contains { $0.title == "余额 ¥12.50" })
             let pctSnap = BalanceSnapshot(
                 result: BalanceResult(provider: .minimaxCodeCN, balance: 92, currency: .percent, usedPercent: 8, resetRemaining: 4 * 3600 + 30 * 60),
-                capturedAt: Date()
+                capturedAt: Date(),
+                quotaWindows: [QuotaWindow(id: "5h", label: "5h", usedPercent: 8, status: .ok, resetsAt: now.addingTimeInterval(4 * 3600 + 30 * 60))]
             )
             let pctItems = StatusBarPresenter.renderMenu(
                 .init(balance: pctSnap, daily: daily),
                 now: now
             )
-            check("Menu.normal.percentRow.first", pctItems.contains { $0.title == "MiniMax Coding Plan CN: 8%" })
-            check("Menu.normal.percentRow.second", pctItems.contains { $0.title == "重置剩余时间: 4h30m" })
-            // OpenCode Go：余额行用 displayName，三窗口平铺，不再走通用 reset 行
+            let pctBar = pctItems.first { $0.usageBar != nil }?.usageBar
+            check("Menu.normal.percentRow.balance", pctItems.first?.title == "MiniMax Coding Plan CN")
+            check("Menu.normal.percentBar", pctBar?.leftText == "5h" && pctBar?.percentText == "8%" && pctBar?.resetText == "4h30m 后重置" && abs((pctBar?.value ?? -1) - 8) < 0.001)
+            check("Menu.normal.percentRow.noGenericReset", !pctItems.contains { $0.title.hasPrefix("重置剩余时间") })
+            // 无窗口降级（响应缺 start/end）：bar 行无左标签
+            let noWindowSnap = BalanceSnapshot(
+                result: BalanceResult(provider: .minimaxCodeCN, balance: 92, currency: .percent, usedPercent: 8, resetRemaining: 4 * 3600 + 30 * 60),
+                capturedAt: Date()
+            )
+            let noWindowItems = StatusBarPresenter.renderMenu(.init(balance: noWindowSnap, daily: daily), now: now)
+            check("Menu.normal.percentBarNoWindow", noWindowItems.first { $0.usageBar != nil }?.usageBar?.leftText == nil)
+            // OpenCode Go：行 1 用 displayName（无尾百分比），三窗口各一条进度条行
             let qs: [QuotaWindow] = [
                 QuotaWindow(id: "5h", label: "5h", usedPercent: 67, status: .ok, resetsAt: now.addingTimeInterval(3 * 3600 + 15 * 60)),
                 QuotaWindow(id: "7d", label: "7d", usedPercent: 12, status: .ok, resetsAt: now.addingTimeInterval(5 * 86400 + 3 * 3600)),
@@ -265,11 +275,30 @@ public enum SelfCheck {
                 quotaWindows: qs
             )
             let ocItems = StatusBarPresenter.renderMenu(.init(balance: ocSnap, daily: daily), now: now)
-            check("Menu.opencode.balanceRow", ocItems.contains { $0.title == "OpenCode Go: 67%" })
-            check("Menu.opencode.rollingRow", ocItems.contains { $0.title == "5h · 已用 67% · 3h15m 后重置" })
-            check("Menu.opencode.weeklyRow", ocItems.contains { $0.title == "7d · 已用 12% · 5d3h 后重置" })
-            check("Menu.opencode.monthlyRow", ocItems.contains { $0.title == "月度 · 已用 3% · 1d 后重置 · 已限流" })
+            let ocBars = ocItems.compactMap { $0.usageBar }
+            check("Menu.opencode.balanceRow", ocItems.contains { $0.title == "OpenCode Go" })
+            check("Menu.opencode.barCount", ocBars.count == 3)
+            check("Menu.opencode.rollingBar", ocBars.contains { $0.leftText == "5h" && $0.percentText == "67%" && $0.resetText == "3h15m 后重置" && abs($0.value - 67) < 0.001 })
+            check("Menu.opencode.weeklyBar", ocBars.contains { $0.leftText == "7d" && $0.percentText == "12%" && $0.resetText == "5d3h 后重置" && abs($0.value - 12) < 0.001 })
+            check("Menu.opencode.monthlyBar", ocBars.contains { $0.leftText == "月度" && $0.percentText == "3%" && $0.resetText == "1d 后重置" && abs($0.value - 3) < 0.001 })
             check("Menu.opencode.noGenericReset", !ocItems.contains { $0.title.hasPrefix("重置剩余时间") })
+            // stale：进度条行回退纯文本
+            let staleSnap = BalanceSnapshot(
+                result: BalanceResult(provider: .opencodeGo, balance: 67, currency: .percent, usedPercent: 67),
+                capturedAt: Date(),
+                isStale: true,
+                quotaWindows: qs
+            )
+            let staleItems = StatusBarPresenter.renderMenu(.init(balance: staleSnap, daily: daily), now: now)
+            check("Menu.stale.opencode", staleItems.contains { $0.title == "5h · 已用 67% · 3h15m 后重置" } && !staleItems.contains { $0.usageBar != nil })
+            let stalePctSnap = BalanceSnapshot(
+                result: BalanceResult(provider: .minimaxCodeCN, balance: 92, currency: .percent, usedPercent: 8, resetRemaining: 4 * 3600 + 30 * 60),
+                capturedAt: Date(),
+                isStale: true,
+                quotaWindows: [QuotaWindow(id: "5h", label: "5h", usedPercent: 8, status: .ok, resetsAt: now.addingTimeInterval(4 * 3600 + 30 * 60))]
+            )
+            let stalePctItems = StatusBarPresenter.renderMenu(.init(balance: stalePctSnap, daily: daily), now: now)
+            check("Menu.stale.percent", stalePctItems.contains { $0.title == "5h · 已用 8% · 4h30m 后重置" } && !stalePctItems.contains { $0.usageBar != nil })
             check("Menu.normal.hasLast5h", items.contains { $0.title.hasPrefix("近 5h") })
             check("Menu.normal.hasHeaderTickable", items.contains { $0.tickable })
             check("Menu.normal.hasCaffeinateCancel", items.contains { $0.action == .caffeinateCancel })
@@ -284,12 +313,12 @@ public enum SelfCheck {
                 .init(balance: snap, currentModel: "deepseek/deepseek-chat"),
                 now: now
             )
-            check("Menu.model.inline", modelItems.contains { $0.title == "DeepSeek (deepseek-chat): ¥12.50" })
+            check("Menu.model.inline", modelItems.contains { $0.title == "DeepSeek (deepseek-chat)" } && modelItems.contains { $0.title == "余额 ¥12.50" })
             let thinkItems = StatusBarPresenter.renderMenu(
                 .init(balance: ocSnap, currentModel: "hy3:high"),
                 now: now
             )
-            check("Menu.model.stripThinkLevel", thinkItems.contains { $0.title == "OpenCode Go (hy3): 67%" })
+            check("Menu.model.stripThinkLevel", thinkItems.contains { $0.title == "OpenCode Go (hy3)" })
             check("Menu.header.label", header.title.contains("☕️ 阻止休眠 · 还剩"))
         }
 
@@ -416,7 +445,7 @@ public enum SelfCheck {
             }
             do {
                 let p = BalanceRegistry.tokenPlan()
-                let body = #"{"model_remains":[{"model_name":"general","current_interval_remaining_percent":42.0,"remains_time":3600000}]}"#
+                let body = #"{"model_remains":[{"model_name":"general","current_interval_remaining_percent":42.0,"remains_time":3600000,"start_time":1787209200000,"end_time":1787227200000,"current_interval_status":1}]}"#
                 let result: BalanceResult? = withCreds("MINIMAX_API_KEY", "test") {
                     sync { () -> BalanceResult? in
                         let creds = CredentialsResolver()
@@ -428,6 +457,10 @@ public enum SelfCheck {
                 check("MiniMax.parsed.used", result?.usedPercent == 58.0)
                 check("MiniMax.parsed.reset", abs((result?.resetRemaining ?? 0) - 3600) < 0.001)
                 check("MiniMax.parsed.id", result?.provider == .minimax)
+                check("MiniMax.parsed.window.count", result?.quotaWindows?.count == 1)
+                check("MiniMax.parsed.window.label", result?.quotaWindows?.first?.label == "5h")
+                check("MiniMax.parsed.window.used", result?.quotaWindows?.first?.usedPercent == 58)
+                check("MiniMax.parsed.window.resetsAt", result?.quotaWindows?.first?.resetsAt.timeIntervalSince1970 == 1787227200)
             }
             do {
                 let p = BalanceRegistry.tokenPlan()
@@ -457,14 +490,14 @@ public enum SelfCheck {
         // OpenCode Go 解码：三窗口全量 + used 语义 + all-or-nothing
         do {
             let p = BalanceRegistry.opencodeGo()
-            let body = #"{"usage":{"rolling":{"percent":67,"status":"ok","resetsAt":"2026-08-19T12:00:00Z"},"weekly":{"percent":12,"status":"ok","resetsAt":"2026-08-25T12:00:00Z"},"monthly":{"percent":3,"status":"rate-limited","resetsAt":"2026-09-03T12:00:00Z"}}}"#
+            let body = #"{"usage":{"rolling":{"percent":67,"status":"ok","resetsAt":"2027-08-19T12:00:00Z"},"weekly":{"percent":12,"status":"ok","resetsAt":"2026-08-25T12:00:00Z"},"monthly":{"percent":3,"status":"rate-limited","resetsAt":"2026-09-03T12:00:00Z"}}}"#
             let result: BalanceResult? = withCreds("OPENCODE_API_KEY", "test") {
                 sync { () -> BalanceResult? in
                     let creds = CredentialsResolver()
                     return try? await p.fetch(creds: creds, http: FakeHTTP(body: body))
                 }
             }
-            let expRolling = ISO8601DateFormatter().date(from: "2026-08-19T12:00:00Z")!
+            let expRolling = ISO8601DateFormatter().date(from: "2027-08-19T12:00:00Z")!
             check("OpenCode.id", result?.provider == .opencodeGo)
             check("OpenCode.rolling.balance", result?.balance == 67)
             check("OpenCode.rolling.used", result?.usedPercent == 67)

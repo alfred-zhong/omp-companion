@@ -84,13 +84,41 @@ public struct MiniMaxRemainsProvider: BalanceProvider {
         let remainingPercent = (general?["current_interval_remaining_percent"] as? Double) ?? 0
         let usedPercent = max(0, 100 - remainingPercent)
         let resetMs = (general?["remains_time"] as? Double) ?? 0
+        // interval 窗口起止（毫秒时间戳）：窗口大小 = end - start，随套餐可变
+        // （文本配额数小时滚动、媒体配额按日，见上游 omp `intervalWindowId`），
+        // 标签由此推导而非硬编码；缺起止时回退无窗口路径（左标签留空）。
+        let startMs = (general?["start_time"] as? Double) ?? 0
+        let endMs = (general?["end_time"] as? Double) ?? 0
+        var quotaWindows: [QuotaWindow]?
+        if startMs > 0, endMs > startMs {
+            let windowLabel = Self.intervalWindowLabel(durationMs: endMs - startMs)
+            let status: QuotaWindowStatus = (general?["current_interval_status"] as? Double) == 2 ? .rateLimited : .ok
+            quotaWindows = [QuotaWindow(
+                id: windowLabel,
+                label: windowLabel,
+                usedPercent: Int(usedPercent.rounded()),
+                status: status,
+                resetsAt: Date(timeIntervalSince1970: endMs / 1000)
+            )]
+        }
         return BalanceResult(
             provider: id,
             balance: remainingPercent,
             currency: .percent,
             usedPercent: usedPercent,
-            resetRemaining: resetMs / 1000.0
+            resetRemaining: resetMs / 1000.0,
+            quotaWindows: quotaWindows
         )
+    }
+
+    /// interval 窗口时长 → 标签：整小时输出 `5h`，非整小时按分钟 `240m`（与上游 omp 同规则）。
+    private static func intervalWindowLabel(durationMs: Double) -> String {
+        let hourMs: Double = 3_600_000
+        if durationMs.truncatingRemainder(dividingBy: hourMs) == 0 {
+            return "\(Int(durationMs / hourMs))h"
+        }
+        let minutes = Int((durationMs / 60_000).rounded())
+        return minutes > 0 ? "\(minutes)m" : "Interval"
     }
 }
 

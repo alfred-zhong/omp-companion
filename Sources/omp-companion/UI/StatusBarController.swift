@@ -201,6 +201,13 @@ public final class StatusBarController: NSObject, NSMenuDelegate {
         _ spec: StatusBarPresenter.MenuItemSpec,
         into menu: NSMenu
     ) -> NSMenuItem? {
+        if let usageBar = spec.usageBar {
+            let item = NSMenuItem()
+            item.view = UsageBarMenuItemView(leftText: usageBar.leftText, value: usageBar.value, percentText: usageBar.percentText, resetText: usageBar.resetText)
+            item.isEnabled = false
+            menu.addItem(item)
+            return item
+        }
         if spec.submenu == nil && spec.action == nil && spec.title.isEmpty {
             menu.addItem(NSMenuItem.separator())
             return nil

@@ -73,6 +73,8 @@ public enum StatusBarPresenter {
         /// `representedObject == CaffeinateBucket.rawValue` 时勾选
         public let representedBucket: Int?
         public let submenu: [MenuItemSpec]?
+        /// 用量进度条（自定义 view）：非 nil 时 Controller 用 `UsageBarMenuItemView` 渲染，取代纯文本百分比行。
+        public let usageBar: UsageBarSpec?
 
         public enum MenuAction: Equatable, Sendable {
             case forceRefresh
@@ -85,7 +87,7 @@ public enum StatusBarPresenter {
 
         public static let separator = MenuItemSpec(
             title: "", enabled: true, key: "", action: nil, tickable: false,
-            representedBucket: nil, submenu: nil
+            representedBucket: nil, submenu: nil, usageBar: nil
         )
 
         public init(
@@ -95,7 +97,8 @@ public enum StatusBarPresenter {
             action: MenuAction? = nil,
             tickable: Bool = false,
             representedBucket: Int? = nil,
-            submenu: [MenuItemSpec]? = nil
+            submenu: [MenuItemSpec]? = nil,
+            usageBar: UsageBarSpec? = nil
         ) {
             self.title = title
             self.enabled = enabled
@@ -104,6 +107,27 @@ public enum StatusBarPresenter {
             self.tickable = tickable
             self.representedBucket = representedBucket
             self.submenu = submenu
+            self.usageBar = usageBar
+        }
+
+        /// 用量进度条菜单项：`leftText` 为窗口标签(如 "5h"，MiniMax 传 nil)，`value` 为已用百分比(0...100)，
+        /// `percentText` 紧贴条尾(如 "8%")，`resetText` 为右侧左对齐的重置倒计时(如 "4h17m 后重置"，可 nil)。
+        public static func usageBar(leftText: String? = nil, value: Double, percentText: String, resetText: String? = nil) -> MenuItemSpec {
+            MenuItemSpec(title: "", enabled: false, usageBar: UsageBarSpec(leftText: leftText, value: value, percentText: percentText, resetText: resetText))
+        }
+    }
+    /// 用量进度条数据。`value` 为已用百分比(0...100，调用方已 clamp)；`leftText` 为窗口标签(可为 nil)；
+    /// `percentText` 紧贴条尾；`resetText` 为右侧左对齐的重置倒计时(可 nil/空)。
+    public struct UsageBarSpec: Sendable {
+        public let leftText: String?
+        public let value: Double
+        public let percentText: String
+        public let resetText: String?
+        public init(leftText: String?, value: Double, percentText: String, resetText: String?) {
+            self.leftText = leftText
+            self.value = value
+            self.percentText = percentText
+            self.resetText = resetText
         }
     }
 
@@ -220,6 +244,11 @@ public enum StatusBarPresenter {
             MenuItemSpec(title: "退出", key: "q", action: .quit),
         ]
     }
+    /// 已用百分比(0...100)：优先 `usedPercent`，缺失时回退 `100 - balance`，最后 clamp 到 [0,100]。
+    private static func usedPercentValue(_ result: BalanceResult) -> Double {
+        let raw = result.usedPercent ?? max(0, 100 - result.balance)
+        return min(max(raw, 0), 100)
+    }
 
     private static func normalMenu(_ inputs: Inputs, now: Date) -> [MenuItemSpec] {
         var items: [MenuItemSpec] = []
@@ -228,23 +257,46 @@ public enum StatusBarPresenter {
             let text = BalanceFormatter.menuBarText(balance.result)
             let provider = balance.result.provider.displayName
             let modelSuffix = displayModel(inputs.currentModel).map { " (\($0))" } ?? ""
-            let title = "\(provider)\(modelSuffix): \(text)"
-            items.append(MenuItemSpec(
-                title: title,
-                enabled: false
-            ))
-            if let windows = balance.quotaWindows, !windows.isEmpty {
-                // OpenCode Go：平铺三窗口明细（含各自重置倒计时），不再走通用 reset 行。
+            let percentCurrency = balance.result.currency == .percent
+            // 行 1：统一 `provider (model)`，余额数值一律下沉到第二行（进度条行 / 文本行）。
+            items.append(MenuItemSpec(title: "\(provider)\(modelSuffix)", enabled: false))
+            if percentCurrency && !balance.isStale {
+                // 新鲜数据：进度条行。OpenCode Go 三窗口各一行；MiniMax interval 窗口一行。
+                if let windows = balance.quotaWindows, !windows.isEmpty {
+                    for w in windows {
+                        let remain = w.resetsAt.timeIntervalSince(now)
+                        items.append(.usageBar(
+                            leftText: w.label,
+                            value: Double(w.usedPercent),
+                            percentText: "\(w.usedPercent)%",
+                            resetText: remain > 0 ? "\(BalanceFormatter.formatDuration(remain)) 后重置" : nil
+                        ))
+                    }
+                } else {
+                    let resetText = balance.result.resetRemaining.map { r -> String? in
+                        r > 0 ? "\(BalanceFormatter.formatDuration(r)) 后重置" : nil
+                    } ?? nil
+                    items.append(.usageBar(
+                        value: usedPercentValue(balance.result),
+                        percentText: text,
+                        resetText: resetText
+                    ))
+                }
+            } else if let windows = balance.quotaWindows, !windows.isEmpty {
+                // stale：OpenCode Go 回退纯文本窗口行
                 for w in windows {
                     items.append(MenuItemSpec(title: quotaRow(w, now: now), enabled: false))
                 }
-            } else if balance.result.currency == .percent,
-                      let reset = balance.result.resetRemaining,
-                      reset > 0 {
-                items.append(MenuItemSpec(
-                    title: "重置剩余时间: \(BalanceFormatter.formatHMS(reset))",
-                    enabled: false
-                ))
+            } else if percentCurrency {
+                // stale / 无窗口：percent 回退纯文本用量行
+                var s = "已用 \(text)"
+                if let reset = balance.result.resetRemaining, reset > 0 {
+                    s += " · \(BalanceFormatter.formatDuration(reset)) 后重置"
+                }
+                items.append(MenuItemSpec(title: s, enabled: false))
+            } else {
+                // CNY：余额文本行（无进度条）
+                items.append(MenuItemSpec(title: "余额 \(text)", enabled: false))
             }
         }
         else if let err = inputs.lastBalanceError {
@@ -280,15 +332,12 @@ public enum StatusBarPresenter {
         return items
     }
 
-    /// OpenCode Go 单窗口菜单行：`5h · 已用 67% · 3h15m 后重置`；已限流窗口追加 `· 已限流`。
+    /// 窗口回退文本行：`5h · 已用 67% · 3h15m 后重置`（stale 时替代进度条行）。
     private static func quotaRow(_ w: QuotaWindow, now: Date) -> String {
         var s = "\(w.label) · 已用 \(w.usedPercent)%"
         let remain = w.resetsAt.timeIntervalSince(now)
         if remain > 0 {
             s += " · \(BalanceFormatter.formatDuration(remain)) 后重置"
-        }
-        if w.status == .rateLimited {
-            s += " · 已限流"
         }
         return s
     }

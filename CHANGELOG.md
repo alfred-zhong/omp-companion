@@ -12,6 +12,8 @@
 - 菜单栏加入「阻止系统休眠」（Caffeinate）守护:基于 `IOPMAssertion`,同时阻止系统与显示器空闲睡眠;提供 30 / 60 / 120 分钟三档可重复启动,到期或取消自动释放;进程退出静默释放
 - 状态栏标题在 caffeinate 激活时把咖啡杯标记从 logo 与文字之间移到余额右侧,减少视觉抢戏
 - 下拉菜单余额行（`provider: usage`）的 provider 后跟括号标注当前模型名：取自 config.yml 的 `modelRoles.default`，取最后一个 `/` 之后的模型段并剥掉末尾 think level（如 `hy3:high` → `OpenCode Go (hy3): 67%`、`deepseek/deepseek-chat` → `DeepSeek (deepseek-chat): ¥12.50`）。仅展示 config 默认模型，不读 runtime 覆盖（ADR-0001）
+- 用量进度条：percent 类型 provider 在首行下方新增自绘进度条行（圆角轨道 + 段色填充），格式 `5h [条] 8% 4h17m 后重置`——窗口标签 + 紧贴条尾的百分比 + 右侧左对齐的重置倒计时，无 `·` 分隔；三段色 <70 绿 / 70–90 黄 / >90 红；OpenCode Go 三窗口各一行、MiniMax interval 窗口一行、stale 时回退纯文本行
+- MiniMax 读取 interval 窗口起止（`start_time` / `end_time`）：窗口大小由时长推导（整小时 `5h`、非整小时 `240m`，随套餐可变），进度条行显示窗口标签；`current_interval_status == 2`（耗尽）映射 `rate-limited` 语义
 
 ### 变更
 
@@ -24,6 +26,9 @@
 - 下拉菜单模型名改为内联到余额行（`StatusBarPresenter.normalMenu` 余额行 provider 后括号拼接 `(<model>)`），不再单独成行；`SelfCheck` 改为断言余额行内联（`Menu.model.inline` / `Menu.model.stripThinkLevel`）与 `Refresh.success.model` 通路
 - `SelfCheck` 新增 5 条断言锁定上述行为（`Balance.menuBarTextCNY` / `Menu.normal.percentRow` 等），全部通过
 - `SelfCheck` 增加 Caffeinate / CountdownFormatter / StatusBarTitleComposer 共 14 条断言，全部通过
+- 下拉菜单余额行结构统一为「首行 `provider (model)` + 数值第二行」：percent 类型第二行为进度条行（含重置倒计时），DeepSeek CNY 第二行为 `余额 ¥X.XX`；首行不再显示余额/百分比
+- 进度条行布局修订：右文本由「定宽右对齐」改为「百分比紧贴条尾（百分比区定宽 40pt 保证多行条等长）+ 重置倒计时右区左对齐」
+- 移除进度条行的 `已限流` 后缀（限流状态不再在菜单展示）
 
 ### Bug 修复
 - MiniMax logo 换源:弃用 lobe-icons 变体（线条过细，32/48px 蒙版下碎成点阵），改用官网导航栏官方红色 "M" 字形（`filecdn.minimax.chat` 裁剪图形区），重新生成 `provider_minimax@2x/3x.png` 蒙版并保留 `provider_minimax.color.png` 原图
