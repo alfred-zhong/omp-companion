@@ -60,21 +60,21 @@ public final class StatusBarController: NSObject, NSMenuDelegate {
     }
 
     private func wireState() {
-        let bridge: (Any) -> Void = { [weak self] _ in
+        let bridge: () -> Void = { [weak self] in
             guard let self else { return }
             MainActor.assumeIsolated { self.refreshAll() }
         }
-        state.$balance.receive(on: RunLoop.main).sink { bridge($0) }.store(in: &cancellables)
-        state.$daily.receive(on: RunLoop.main).sink { bridge($0) }.store(in: &cancellables)
-        state.$lastBalanceError.receive(on: RunLoop.main).sink { bridge($0) }.store(in: &cancellables)
-        state.$lastDailyError.receive(on: RunLoop.main).sink { bridge($0) }.store(in: &cancellables)
-        state.$configMissing.receive(on: RunLoop.main).sink { bridge($0) }.store(in: &cancellables)
-        state.$missingCredential.receive(on: RunLoop.main).sink { bridge($0) }.store(in: &cancellables)
+        state.$balance.receive(on: RunLoop.main).sink { _ in bridge() }.store(in: &cancellables)
+        state.$daily.receive(on: RunLoop.main).sink { _ in bridge() }.store(in: &cancellables)
+        state.$lastBalanceError.receive(on: RunLoop.main).sink { _ in bridge() }.store(in: &cancellables)
+        state.$lastDailyError.receive(on: RunLoop.main).sink { _ in bridge() }.store(in: &cancellables)
+        state.$configMissing.receive(on: RunLoop.main).sink { _ in bridge() }.store(in: &cancellables)
+        state.$missingCredential.receive(on: RunLoop.main).sink { _ in bridge() }.store(in: &cancellables)
         state.$currentProvider.receive(on: RunLoop.main).sink { [weak self] _ in
             guard let self else { return }
             MainActor.assumeIsolated { self.refreshLogo() }
         }.store(in: &cancellables)
-        state.$caffeinateSession.receive(on: RunLoop.main).sink { bridge($0) }.store(in: &cancellables)
+        state.$caffeinateSession.receive(on: RunLoop.main).sink { _ in bridge() }.store(in: &cancellables)
         state.$countdownTick.receive(on: RunLoop.main).sink { [weak self] _ in
             guard let self else { return }
             MainActor.assumeIsolated { self.refreshCaffeinateHeaderInPlace() }
@@ -90,7 +90,8 @@ public final class StatusBarController: NSObject, NSMenuDelegate {
             lastBalanceError: state.lastBalanceError,
             lastDailyError: state.lastDailyError,
             daily: state.daily,
-            currentProvider: state.currentProvider
+            currentProvider: state.currentProvider,
+            currentModel: state.currentModel
         )
     }
 
@@ -262,7 +263,7 @@ public final class StatusBarController: NSObject, NSMenuDelegate {
         guard let raw = sender.representedObject as? Int,
               let bucket = CaffeinateBucket(rawValue: raw) else { return }
         MainActor.assumeIsolated {
-            sleepGuard.start(bucket: bucket)
+            _ = sleepGuard.start(bucket: bucket)
         }
     }
 

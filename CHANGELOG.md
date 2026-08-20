@@ -11,6 +11,7 @@
 - 菜单栏在余额 / 用量文字左侧渲染供应商 logo:DeepSeek / MiniMax / Coding Plan (CN) 走各自动蒙版（黑透 PNG），`.unknown` 路由下落回默认问号图
 - 菜单栏加入「阻止系统休眠」（Caffeinate）守护:基于 `IOPMAssertion`,同时阻止系统与显示器空闲睡眠;提供 30 / 60 / 120 分钟三档可重复启动,到期或取消自动释放;进程退出静默释放
 - 状态栏标题在 caffeinate 激活时把咖啡杯标记从 logo 与文字之间移到余额右侧,减少视觉抢戏
+- 下拉菜单余额行（`provider: usage`）的 provider 后跟括号标注当前模型名：取自 config.yml 的 `modelRoles.default`，取最后一个 `/` 之后的模型段并剥掉末尾 think level（如 `hy3:high` → `OpenCode Go (hy3): 67%`、`deepseek/deepseek-chat` → `DeepSeek (deepseek-chat): ¥12.50`）。仅展示 config 默认模型，不读 runtime 覆盖（ADR-0001）
 
 ### 变更
 
@@ -20,6 +21,7 @@
 - 菜单栏标题对所有 percent 类型 provider 仅展示「使用额度」（如 `12%`），不再附带过期时间
 - 下拉菜单余额行统一为 `provider: 余额` 格式:percent 类型如 `minimax-code-cn: 8%`,有 reset 时 reset 单独起一行 `重置剩余时间: 4h30m`(无 reset 时只有一行);cny 类型如 `deepseek: ¥12.50`
 - `BalanceFormatter.menuBarText` 收紧为纯余额段(percent 只返回 `"8%"`,reset 文案改由 `StatusBarPresenter.normalMenu` 拼装第二行)
+- 下拉菜单模型名改为内联到余额行（`StatusBarPresenter.normalMenu` 余额行 provider 后括号拼接 `(<model>)`），不再单独成行；`SelfCheck` 改为断言余额行内联（`Menu.model.inline` / `Menu.model.stripThinkLevel`）与 `Refresh.success.model` 通路
 - `SelfCheck` 新增 5 条断言锁定上述行为（`Balance.menuBarTextCNY` / `Menu.normal.percentRow` 等），全部通过
 - `SelfCheck` 增加 Caffeinate / CountdownFormatter / StatusBarTitleComposer 共 14 条断言，全部通过
 

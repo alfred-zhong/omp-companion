@@ -17,17 +17,18 @@ public struct LiveBalanceSource: BalanceSource {
         self.http = http
     }
 
-    public func capture(now: Date) async -> (BalanceSnapshot?, SnapshotError?) {
+    public func capture(now: Date) async -> (BalanceSnapshot?, SnapshotError?, model: String?) {
         let cfg = config.load()
-        guard let defaultModel = cfg.defaultModel, !defaultModel.isEmpty else {
-            return (nil, .configMissing)
+        let model = cfg.defaultModel
+        guard let defaultModel = model, !defaultModel.isEmpty else {
+            return (nil, .configMissing, model: model)
         }
         let pid = BalanceRegistry.providerID(fromDefaultModel: defaultModel)
         guard let provider = BalanceRegistry.provider(for: pid) else {
-            return (nil, .fetchError("未匹配到服务商（\(defaultModel)）"))
+            return (nil, .fetchError("未匹配到服务商（\(defaultModel)）"), model: model)
         }
         guard provider.hasCredential(creds: creds) else {
-            return (nil, .missingCredential(pid.rawValue))
+            return (nil, .missingCredential(pid.rawValue), model: model)
         }
         do {
             let result = try await provider.fetch(creds: creds, http: http)
@@ -36,9 +37,9 @@ public struct LiveBalanceSource: BalanceSource {
                 capturedAt: now,
                 quotaWindows: result.quotaWindows
             )
-            return (snap, nil)
+            return (snap, nil, model: model)
         } catch {
-            return (nil, .fetchError(humanReadable(error)))
+            return (nil, .fetchError(humanReadable(error)), model: model)
         }
     }
 

@@ -9,6 +9,10 @@ public final class AppState: ObservableObject, @unchecked Sendable {
     @Published public private(set) var lastDailyError: String?
     @Published public private(set) var configMissing: Bool = false
     @Published public private(set) var missingCredential: String?
+    /// 当前 config.yml 默认模型名（defaultModel 原始串，如 "deepseek/deepseek-chat"）。
+    /// 仅来自 config，不读 runtime 覆盖（ADR-0001）；菜单首行展示，渲染时只取 "/" 之后。
+    /// 缺配置时为 nil → 菜单显示 "?"。
+    @Published public private(set) var currentModel: String?
     @Published public private(set) var caffeinateSession: CaffeinateSession?
     /// 当前选中的供应商 id（每次 fetch 后由 RefreshController 从 BalanceSnapshot 写入）；
     /// 状态栏用它查 LogoCatalog 渲染 NSStatusItem 的 image。
@@ -24,6 +28,7 @@ public final class AppState: ObservableObject, @unchecked Sendable {
     public func setDailyError(_ msg: String?) { self.lastDailyError = msg }
     public func setConfigMissing(_ v: Bool) { self.configMissing = v }
     public func setMissingCredential(_ v: String?) { self.missingCredential = v }
+    public func setCurrentModel(_ m: String?) { self.currentModel = m }
     public func setCaffeinateSession(_ s: CaffeinateSession?) { self.caffeinateSession = s }
     public func setCurrentProvider(_ p: ProviderID?) { self.currentProvider = p }
     public func advanceCountdownTick() { self.countdownTick = Date() }
@@ -53,15 +58,15 @@ public final class RefreshController: @unchecked Sendable {
         let bs = await balanceSource.capture(now: Date())
         let ds = await dailySource.capture(now: Date())
         await MainActor.run {
-            self.applyBalance(snap: bs.0, err: bs.1)
+            self.applyBalance(snap: bs.0, err: bs.1, model: bs.2)
             self.applyDaily(snap: ds.0, err: ds.1)
         }
     }
 
     public func refreshBalance() async {
-        let (snap, err) = await balanceSource.capture(now: Date())
+        let (snap, err, model) = await balanceSource.capture(now: Date())
         await MainActor.run {
-            self.applyBalance(snap: snap, err: err)
+            self.applyBalance(snap: snap, err: err, model: model)
         }
     }
 
@@ -76,12 +81,15 @@ public final class RefreshController: @unchecked Sendable {
     /// 给 SelfCheck 用来在不依赖 main runloop / detached task 的情况下验证应用逻辑。
     public func apply(
         balanceSnap: BalanceSnapshot?, balanceErr: SnapshotError?,
+        balanceModel: String? = nil,
         dailySnap: DailyUsageSnapshot?, dailyErr: SnapshotError?
     ) {
-        self.applyBalance(snap: balanceSnap, err: balanceErr)
+        self.applyBalance(snap: balanceSnap, err: balanceErr, model: balanceModel)
         self.applyDaily(snap: dailySnap, err: dailyErr)
     }
-    private func applyBalance(snap: BalanceSnapshot?, err: SnapshotError?) {
+    private func applyBalance(snap: BalanceSnapshot?, err: SnapshotError?, model: String?) {
+        // 模型名来自 config，与 fetch 成败无关：每个 tick 无条件回填（缺配置时为 nil → 菜单 "?"）。
+        self.state.setCurrentModel(model)
         switch err {
         case .configMissing:
             self.state.setConfigMissing(true)

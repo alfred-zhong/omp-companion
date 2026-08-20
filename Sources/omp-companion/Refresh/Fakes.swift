@@ -1,15 +1,15 @@
 import Foundation
 
-/// 测试用 Fake BalanceSource:可编程式指定返回的 (snapshot, error) 对。
+/// 测试用 Fake BalanceSource:可编程式指定返回的 (snapshot, error, model) 对。
 public final class FakeBalanceSource: BalanceSource, @unchecked Sendable {
-    public var next: (BalanceSnapshot?, SnapshotError?)
+    public var next: (BalanceSnapshot?, SnapshotError?, model: String?)
     public var callCount = 0
 
-    public init(next: (BalanceSnapshot?, SnapshotError?) = (nil, nil)) {
+    public init(next: (BalanceSnapshot?, SnapshotError?, model: String?) = (nil, nil, nil)) {
         self.next = next
     }
 
-    public func capture(now: Date) async -> (BalanceSnapshot?, SnapshotError?) {
+    public func capture(now: Date) async -> (BalanceSnapshot?, SnapshotError?, model: String?) {
         callCount += 1
         return next
     }

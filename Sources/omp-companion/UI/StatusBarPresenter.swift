@@ -22,6 +22,9 @@ public enum StatusBarPresenter {
         /// 当前 provider，logo 由 Controller 独立写 button.image；这里只是传递用，
         /// 未来 menu/popover 想展示品牌名时也能复用到。
         public let currentProvider: ProviderID?
+        /// 当前 config.yml 默认模型名（完整 defaultModel，如 "deepseek/deepseek-chat"）；
+        /// 菜单首行展示，渲染时只取 "/" 之后部分。仅来自 config（ADR-0001）。
+        public let currentModel: String?
 
         public init(
             balance: BalanceSnapshot? = nil,
@@ -31,7 +34,8 @@ public enum StatusBarPresenter {
             lastBalanceError: String? = nil,
             lastDailyError: String? = nil,
             daily: DailyUsageSnapshot? = nil,
-            currentProvider: ProviderID? = nil
+            currentProvider: ProviderID? = nil,
+            currentModel: String? = nil
         ) {
             self.balance = balance
             self.missingCredential = missingCredential
@@ -41,6 +45,7 @@ public enum StatusBarPresenter {
             self.lastDailyError = lastDailyError
             self.daily = daily
             self.currentProvider = currentProvider
+            self.currentModel = currentModel
         }
     }
     // MARK: - ChromeSpec
@@ -174,7 +179,7 @@ public enum StatusBarPresenter {
 
     // MARK: - renderMenu
 
-    /// 弹出菜单:全部状态分支 + Caffeinate 子菜单 + 倒计时 header。
+    /// 弹出菜单:全部状态分支 + Caffeinate 子菜单 + 倒计时 header；模型名内联到余额行。
     public static func renderMenu(_ inputs: Inputs, now: Date = Date()) -> [MenuItemSpec] {
         if inputs.configMissing {
             return configMissingMenu()
@@ -183,6 +188,14 @@ public enum StatusBarPresenter {
             return missingCredentialMenu(missing)
         }
         return normalMenu(inputs, now: now)
+    }
+
+    /// 模型展示名：取 defaultModel 中最后一个 "/" 之后的模型段，再剥掉末尾 think level
+    /// （"hy3:high" → "hy3"）；nil/空/纯空白 → nil。用于内联到余额行。
+    private static func displayModel(_ model: String?) -> String? {
+        guard let m = model?.trimmingCharacters(in: .whitespaces), !m.isEmpty else { return nil }
+        let afterSlash = String(m.split(separator: "/").last ?? Substring(m))
+        return afterSlash.split(separator: ":").first.map(String.init) ?? afterSlash
     }
 
     private static func configMissingMenu() -> [MenuItemSpec] {
@@ -213,8 +226,11 @@ public enum StatusBarPresenter {
         // 余额行
         if let balance = inputs.balance {
             let text = BalanceFormatter.menuBarText(balance.result)
+            let provider = balance.result.provider.displayName
+            let modelSuffix = displayModel(inputs.currentModel).map { " (\($0))" } ?? ""
+            let title = "\(provider)\(modelSuffix): \(text)"
             items.append(MenuItemSpec(
-                title: "\(balance.result.provider.displayName): \(text)",
+                title: title,
                 enabled: false
             ))
             if let windows = balance.quotaWindows, !windows.isEmpty {
@@ -230,7 +246,8 @@ public enum StatusBarPresenter {
                     enabled: false
                 ))
             }
-        } else if let err = inputs.lastBalanceError {
+        }
+        else if let err = inputs.lastBalanceError {
             items.append(MenuItemSpec(title: "余额: \(err)", enabled: false))
         } else {
             items.append(MenuItemSpec(title: "余额: ···", enabled: false))

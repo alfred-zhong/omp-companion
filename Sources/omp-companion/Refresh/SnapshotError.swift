@@ -17,9 +17,9 @@ public enum SnapshotError: Error, Sendable, Equatable {
 /// BalanceSource:对 RefreshController 暴露的"一次余额抓取"最小 seam。
 ///
 /// 把 config 读取 + 凭据解析 + provider 路由 + HTTP + 错误文本化都封在实现里。
-/// RefreshController 只看到 `(BalanceSnapshot?, SnapshotError?)`。
+/// RefreshController 只看到 `(BalanceSnapshot?, SnapshotError?, model: String?)`。
 public protocol BalanceSource: Sendable {
-    func capture(now: Date) async -> (BalanceSnapshot?, SnapshotError?)
+    func capture(now: Date) async -> (BalanceSnapshot?, SnapshotError?, model: String?)
 }
 
 /// DailyUsageSource:对 RefreshController 暴露的"一次日用量聚合"最小 seam。

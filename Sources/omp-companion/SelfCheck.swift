@@ -24,7 +24,6 @@ public enum SelfCheck {
         }
 
         // 在 self-check 进程里临时塞一对凭据,绕过 CredentialsResolver 的 env / 文件查找。
-        let envBackup = ProcessInfo.processInfo.environment
         func withCreds<T>(_ key: String, _ value: String, _ body: () -> T) -> T {
             setenv(key, value, 1)
             defer { setenv(key, "", 1) }
@@ -280,6 +279,17 @@ public enum SelfCheck {
             check("Menu.submenu.count", sub.count == 3)
             check("Menu.submenu.checked", sub.contains { $0.representedBucket == 60 && $0.title.contains("✓") })
             let header = items.first { $0.tickable }!
+            // 模型名内联到余额行（provider: usage 之后，用 · 连接）
+            let modelItems = StatusBarPresenter.renderMenu(
+                .init(balance: snap, currentModel: "deepseek/deepseek-chat"),
+                now: now
+            )
+            check("Menu.model.inline", modelItems.contains { $0.title == "DeepSeek (deepseek-chat): ¥12.50" })
+            let thinkItems = StatusBarPresenter.renderMenu(
+                .init(balance: ocSnap, currentModel: "hy3:high"),
+                now: now
+            )
+            check("Menu.model.stripThinkLevel", thinkItems.contains { $0.title == "OpenCode Go (hy3): 67%" })
             check("Menu.header.label", header.title.contains("☕️ 阻止休眠 · 还剩"))
         }
 
@@ -314,9 +324,10 @@ public enum SelfCheck {
                     result: BalanceResult(provider: .deepseek, balance: 12.5, currency: .cny),
                     capturedAt: Date()
                 )
-                rc.apply(balanceSnap: snap, balanceErr: nil, dailySnap: nil, dailyErr: nil)
+                rc.apply(balanceSnap: snap, balanceErr: nil, balanceModel: "deepseek/deepseek-chat", dailySnap: nil, dailyErr: nil)
                 check("Refresh.success.balance", state.balance?.result.balance == 12.5)
                 check("Refresh.success.noError", state.lastBalanceError == nil)
+                check("Refresh.success.model", state.currentModel == "deepseek/deepseek-chat")
             }
             do {
                 let state = AppState()
@@ -485,15 +496,17 @@ public enum SelfCheck {
             // 缺 monthly 窗口 → all-or-nothing → invalidResponse
             let p = BalanceRegistry.opencodeGo()
             let body = #"{"usage":{"rolling":{"percent":10,"status":"ok","resetsAt":"2026-08-19T12:00:00Z"},"weekly":{"percent":10,"status":"ok","resetsAt":"2026-08-25T12:00:00Z"}}}"#
-            var thrown: HTTPError?
-            withCreds("OPENCODE_API_KEY", "test") {
+            let thrown = withCreds("OPENCODE_API_KEY", "test") {
                 sync {
                     let creds = CredentialsResolver()
                     do {
                         _ = try await p.fetch(creds: creds, http: FakeHTTP(body: body))
+                        return nil as HTTPError?
                     } catch let e as HTTPError {
-                        thrown = e
-                    } catch {}
+                        return e
+                    } catch {
+                        return nil as HTTPError?
+                    }
                 }
             }
             check("OpenCode.missingWindow.throws", thrown == .invalidResponse)
@@ -502,15 +515,17 @@ public enum SelfCheck {
             // percent 越界 → malformed → invalidResponse
             let p = BalanceRegistry.opencodeGo()
             let body = #"{"usage":{"rolling":{"percent":150,"status":"ok","resetsAt":"2026-08-19T12:00:00Z"},"weekly":{"percent":10,"status":"ok","resetsAt":"2026-08-25T12:00:00Z"},"monthly":{"percent":3,"status":"ok","resetsAt":"2026-09-03T12:00:00Z"}}}"#
-            var thrown: HTTPError?
-            withCreds("OPENCODE_API_KEY", "test") {
+            let thrown = withCreds("OPENCODE_API_KEY", "test") {
                 sync {
                     let creds = CredentialsResolver()
                     do {
                         _ = try await p.fetch(creds: creds, http: FakeHTTP(body: body))
+                        return nil as HTTPError?
                     } catch let e as HTTPError {
-                        thrown = e
-                    } catch {}
+                        return e
+                    } catch {
+                        return nil as HTTPError?
+                    }
                 }
             }
             check("OpenCode.badPercent.throws", thrown == .invalidResponse)
