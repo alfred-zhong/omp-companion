@@ -6,7 +6,7 @@
 ### 新增特性
 
 
-- 新增 Provider：OpenCode Go（`opencode-go/*`，opencode.ai 订阅网关）——状态栏展示 5h 滚动窗口已用百分比，下拉菜单平铺 5h / 7d / 月度三窗口明细（各自重置倒计时，≥24h 用 `Xd Yh`；`rate-limited` 窗口标「已限流」）；凭据走 `.env` 链 `OPENCODE_API_KEY`（决策见 `docs/adr/0005-opencode-go-credential-from-dotenv.md`）
+- 新增 Provider：OpenCode Go（`opencode-go/*`，opencode.ai 订阅网关）——状态栏展示 5h 滚动窗口已用百分比，下拉菜单平铺 5h / 7d / 月度三窗口明细（各自重置倒计时，≥24h 用 `XdYh`；`rate-limited` 窗口标「已限流」）；凭据走 `.env` 链 `OPENCODE_API_KEY`（决策见 `docs/adr/0005-opencode-go-credential-from-dotenv.md`）
 - 菜单栏新增 OpenCode Go 官方品牌 logo（opencode.ai favicon 终端窗框字形蒙版，`provider_opencode_go@2x/3x.png`）
 - 菜单栏在余额 / 用量文字左侧渲染供应商 logo:DeepSeek / MiniMax / Coding Plan (CN) 走各自动蒙版（黑透 PNG），`.unknown` 路由下落回默认问号图
 - 菜单栏加入「阻止系统休眠」（Caffeinate）守护:基于 `IOPMAssertion`,同时阻止系统与显示器空闲睡眠;提供 30 / 60 / 120 分钟三档可重复启动,到期或取消自动释放;进程退出静默释放
@@ -27,7 +27,7 @@
 
 ### Bug 修复
 - MiniMax logo 换源:弃用 lobe-icons 变体（线条过细，32/48px 蒙版下碎成点阵），改用官网导航栏官方红色 "M" 字形（`filecdn.minimax.chat` 裁剪图形区），重新生成 `provider_minimax@2x/3x.png` 蒙版并保留 `provider_minimax.color.png` 原图
-- caffeinate 激活时 logo 变黑:`button.contentTintColor` 在带 `layer.backgroundColor` 的状态下不被 AppKit 应用,template image 退化成原色显示。修复:`StatusBarController` 在激活期用 `lockFocus` + `destinationIn` 把 logo 重绘成 alpha-only 白色非 template 副本并按 `provider#active|idle` 缓存
+- OpenCode Go 下拉菜单三窗口重置倒计时格式不统一：5h 窗口为紧凑无空格 `4h59m`，而 7d / 月度窗口为 `3d 14h` / `29d 22h`（中间带空格）。已统一 `BalanceFormatter.formatDuration` 为全程无空格风格 `XdYh`（与 `formatHMS` / 状态栏 `YhYm` 一致）
 
 
 ### 变更

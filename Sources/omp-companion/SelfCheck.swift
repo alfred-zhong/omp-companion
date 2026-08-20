@@ -64,7 +64,7 @@ public enum SelfCheck {
         check("Duration.hms", BalanceFormatter.formatDuration(3 * 3600 + 15 * 60) == "3h15m")
         check("Duration.23h59m", BalanceFormatter.formatDuration(86399) == "23h59m")
         check("Duration.1d", BalanceFormatter.formatDuration(86400) == "1d")
-        check("Duration.5d3h", BalanceFormatter.formatDuration(5 * 86400 + 3 * 3600) == "5d 3h")
+        check("Duration.5d3h", BalanceFormatter.formatDuration(5 * 86400 + 3 * 3600) == "5d3h")
 
         // HourlyAggregator
         do {
@@ -267,7 +267,7 @@ public enum SelfCheck {
             let ocItems = StatusBarPresenter.renderMenu(.init(balance: ocSnap, daily: daily), now: now)
             check("Menu.opencode.balanceRow", ocItems.contains { $0.title == "OpenCode Go: 67%" })
             check("Menu.opencode.rollingRow", ocItems.contains { $0.title == "5h · 已用 67% · 3h15m 后重置" })
-            check("Menu.opencode.weeklyRow", ocItems.contains { $0.title == "7d · 已用 12% · 5d 3h 后重置" })
+            check("Menu.opencode.weeklyRow", ocItems.contains { $0.title == "7d · 已用 12% · 5d3h 后重置" })
             check("Menu.opencode.monthlyRow", ocItems.contains { $0.title == "月度 · 已用 3% · 1d 后重置 · 已限流" })
             check("Menu.opencode.noGenericReset", !ocItems.contains { $0.title.hasPrefix("重置剩余时间") })
             check("Menu.normal.hasLast5h", items.contains { $0.title.hasPrefix("近 5h") })
