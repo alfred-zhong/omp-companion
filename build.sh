@@ -26,9 +26,9 @@ mkdir -p "${APP_DIR}/Contents/MacOS"
 mkdir -p "${APP_DIR}/Contents/Resources"
 cp "${BIN_PATH}" "${APP_DIR}/Contents/MacOS/${APP_NAME}"
 cp Resources/Info.plist "${APP_DIR}/Contents/Info.plist"
-# Logo 资源:状态栏供应商图标,template 蒙版。由 LogoCatalog.image(for:) 在 bundle 里查表。
+# Logo 资源由 LogoCatalog.image(for:) 在 bundle 里查表；PNG 与 SVG 都需要随 app 分发。
 shopt -s nullglob
-for f in Resources/*.png; do
+for f in Resources/*.{png,svg}; do
     cp "$f" "${APP_DIR}/Contents/Resources/"
 done
 shopt -u nullglob

@@ -70,6 +70,7 @@ public final class StatusBarController: NSObject, NSMenuDelegate {
         state.$lastDailyError.receive(on: RunLoop.main).sink { _ in bridge() }.store(in: &cancellables)
         state.$configMissing.receive(on: RunLoop.main).sink { _ in bridge() }.store(in: &cancellables)
         state.$missingCredential.receive(on: RunLoop.main).sink { _ in bridge() }.store(in: &cancellables)
+        state.$unmatchedProvider.receive(on: RunLoop.main).sink { _ in bridge() }.store(in: &cancellables)
         state.$currentProvider.receive(on: RunLoop.main).sink { [weak self] _ in
             guard let self else { return }
             MainActor.assumeIsolated { self.refreshLogo() }
@@ -91,7 +92,8 @@ public final class StatusBarController: NSObject, NSMenuDelegate {
             lastDailyError: state.lastDailyError,
             daily: state.daily,
             currentProvider: state.currentProvider,
-            currentModel: state.currentModel
+            currentModel: state.currentModel,
+            unmatchedProvider: state.unmatchedProvider
         )
     }
 

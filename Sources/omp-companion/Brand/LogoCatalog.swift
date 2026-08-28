@@ -2,7 +2,7 @@ import AppKit
 import Foundation
 
 /// 状态栏 logo 查表:ProviderID → NSImage。资源全部在 `.app/Contents/Resources/` 下,
-/// 由 `build.sh` 在拼 .app 时统一从 `Resources/*.png` 复制过去。
+/// 由 `build.sh` 在拼 .app 时统一从 `Resources/*.{png,svg}` 复制过去。
 ///
 /// `image(for:)` 加载时一次性 `setTemplate(true)`,使 AppKit 按系统 menu bar
 /// 灰度重新着色(dark/light 自动跟随)。
@@ -13,26 +13,35 @@ import Foundation
 public enum LogoCatalog {
 
     /// `.minimax` 与 `.minimaxCodeCN` 复用同一张 logo(品牌一致)。
-    private static func assetBaseName(for id: ProviderID) -> String {
+    static func assetBaseName(for id: ProviderID) -> String {
         switch id {
         case .deepseek:        return "provider_deepseek"
         case .minimax,
              .minimaxCodeCN:  return "provider_minimax"
         case .opencodeGo:      return "provider_opencode_go"
-        case .unknown:         return "logo_unknown"
+        case .unknown:         return "logo_omp"
         }
+    }
+
+    private static func assetExtension(for id: ProviderID) -> String {
+        id == .unknown ? "svg" : "png"
+    }
+
+    private static func assetCandidates(for id: ProviderID) -> [String] {
+        let base = assetBaseName(for: id)
+        return id == .unknown ? [base] : scaleCandidates(base: base)
     }
 
     /// 在给定 bundle 里查 logo,命中后立即标记为 template。未命中返回 nil。
     /// 调用方约定把同一个 NSImage 缓存到 StatusBarController 自己的字段,避免每次刷新触发 I/O。
     public static func image(for id: ProviderID, bundle: Bundle = .main) -> NSImage? {
-        let base = assetBaseName(for: id)
+        let ext = assetExtension(for: id)
         // 1) 走标准 Bundle API。把 @2x/@3x 剥掉,因为 url(forResource:) 不识别 scale suffix;
         //    NSImage 自动按主屏 backing 选最匹配的 NSImageRep。
-        for name in scaleCandidates(base: base) {
+        for name in assetCandidates(for: id) {
             let stripped = dropScaleSuffix(name)
-            if let url = bundle.url(forResource: stripped, withExtension: "png")
-                       ?? bundle.url(forResource: stripped, withExtension: "png", subdirectory: "Resources"),
+            if let url = bundle.url(forResource: stripped, withExtension: ext)
+                       ?? bundle.url(forResource: stripped, withExtension: ext, subdirectory: "Resources"),
                let img = NSImage(contentsOf: url) {
                 img.setValue(true, forKey: "template")
                 return img
@@ -40,8 +49,8 @@ public enum LogoCatalog {
         }
         // 2) fallback:直接拼到 Bundle.resourcePath(.app/Contents/Resources)。
         guard let resourceDir = bundle.resourcePath else { return nil }
-        for name in scaleCandidates(base: base) {
-            let path = URL(fileURLWithPath: resourceDir).appendingPathComponent(name + ".png").path
+        for name in assetCandidates(for: id) {
+            let path = URL(fileURLWithPath: resourceDir).appendingPathComponent(name + ".\(ext)").path
             if FileManager.default.fileExists(atPath: path),
                let img = NSImage(contentsOf: URL(fileURLWithPath: path)) {
                 img.setValue(true, forKey: "template")

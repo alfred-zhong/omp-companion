@@ -23,9 +23,16 @@ public struct LiveBalanceSource: BalanceSource {
         guard let defaultModel = model, !defaultModel.isEmpty else {
             return (nil, .configMissing, model: model)
         }
-        let pid = BalanceRegistry.providerID(fromDefaultModel: defaultModel)
+        let trimmedModel = defaultModel.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let slash = trimmedModel.firstIndex(of: "/"),
+              slash != trimmedModel.startIndex,
+              trimmedModel.index(after: slash) != trimmedModel.endIndex else {
+            return (nil, .fetchError("默认模型格式无效（\(defaultModel)）"), model: defaultModel)
+        }
+        let providerName = String(trimmedModel[..<slash])
+        let pid = BalanceRegistry.providerID(fromDefaultModel: trimmedModel)
         guard let provider = BalanceRegistry.provider(for: pid) else {
-            return (nil, .fetchError("未匹配到服务商（\(defaultModel)）"), model: model)
+            return (nil, .unmatchedProvider(providerName), model: trimmedModel)
         }
         guard provider.hasCredential(creds: creds) else {
             return (nil, .missingCredential(pid.rawValue), model: model)

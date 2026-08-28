@@ -25,6 +25,8 @@ public enum StatusBarPresenter {
         /// 当前 config.yml 默认模型名（完整 defaultModel，如 "deepseek/deepseek-chat"）；
         /// 菜单首行展示，渲染时只取 "/" 之后部分。仅来自 config（ADR-0001）。
         public let currentModel: String?
+        /// Default Model 格式正确但 Provider 未受支持时，保留其原始前缀用于展示。
+        public let unmatchedProvider: String?
 
         public init(
             balance: BalanceSnapshot? = nil,
@@ -35,7 +37,8 @@ public enum StatusBarPresenter {
             lastDailyError: String? = nil,
             daily: DailyUsageSnapshot? = nil,
             currentProvider: ProviderID? = nil,
-            currentModel: String? = nil
+            currentModel: String? = nil,
+            unmatchedProvider: String? = nil
         ) {
             self.balance = balance
             self.missingCredential = missingCredential
@@ -46,6 +49,7 @@ public enum StatusBarPresenter {
             self.daily = daily
             self.currentProvider = currentProvider
             self.currentModel = currentModel
+            self.unmatchedProvider = unmatchedProvider
         }
     }
     // MARK: - ChromeSpec
@@ -143,7 +147,7 @@ public enum StatusBarPresenter {
 
     // MARK: - renderTitle
 
-    /// 状态栏标题:missingCredential > configMissing > balance > "···"。
+    /// 状态栏标题:missingCredential > configMissing > unmatchedProvider > balance > "···"。
     /// 守护激活时在余额右侧追加 " ☕"(咖啡色),把视觉焦点留给主信息;
     /// balance text 周围按需补空格,避免胶囊裁切。
     /// 所有分支统一在头部补两个 Thin Space(\u{2009} ≈ 0.5pt),拉开 logo 与文字的间距;
@@ -156,6 +160,8 @@ public enum StatusBarPresenter {
             body = NSAttributedString(string: "\(logoTextGap)⚠︎\(missing.prefix(6))")
         } else if inputs.configMissing {
             body = NSAttributedString(string: "\(logoTextGap)?omp")
+        } else if let provider = inputs.unmatchedProvider {
+            body = composeUnmatched(provider: provider, caffeinateActive: inputs.caffeinateSession != nil)
         } else if let balance = inputs.balance {
             let text = BalanceFormatter.statusBarText(balance.result)
             let active = inputs.caffeinateSession != nil
@@ -176,15 +182,23 @@ public enum StatusBarPresenter {
         let result = NSMutableAttributedString()
         result.append(NSAttributedString(string: logoTextGap))
         result.append(NSAttributedString(string: text))
-        if caffeinateActive {
-            let suffix = NSAttributedString(
-                string: caffeinateSuffix,
-                attributes: [.foregroundColor: caffeinateColor]
-            )
-            result.append(suffix)
-        }
+        appendCaffeinateSuffix(to: result, active: caffeinateActive)
         return result
     }
+
+    private static func composeUnmatched(provider: String, caffeinateActive: Bool) -> NSAttributedString {
+        let result = NSMutableAttributedString(string: "\(logoTextGap)\(provider)")
+        appendCaffeinateSuffix(to: result, active: caffeinateActive)
+        return result
+    }
+
+    private static func appendCaffeinateSuffix(to result: NSMutableAttributedString, active: Bool) {
+        guard active else { return }
+        result.append(NSAttributedString(
+            string: caffeinateSuffix,
+            attributes: [.foregroundColor: caffeinateColor]
+        ))
+     }
 
 
     // MARK: - renderChrome
@@ -298,8 +312,11 @@ public enum StatusBarPresenter {
                 // CNY：余额文本行（无进度条）
                 items.append(MenuItemSpec(title: "余额 \(text)", enabled: false))
             }
-        }
-        else if let err = inputs.lastBalanceError {
+        } else if let provider = inputs.unmatchedProvider {
+            let modelSuffix = displayModel(inputs.currentModel).map { " (\($0))" } ?? ""
+            items.append(MenuItemSpec(title: "\(provider)\(modelSuffix)", enabled: false))
+            items.append(MenuItemSpec(title: "\(provider) 暂不支持余额查询", enabled: false))
+        } else if let err = inputs.lastBalanceError {
             items.append(MenuItemSpec(title: "余额: \(err)", enabled: false))
         } else {
             items.append(MenuItemSpec(title: "余额: ···", enabled: false))

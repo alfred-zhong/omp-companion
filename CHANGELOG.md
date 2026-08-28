@@ -3,6 +3,12 @@
 ## Unreleased
 
 
+
+### Bug 修复
+- 未匹配但格式正确的 Provider 不再触发余额请求；状态栏与菜单保留 Provider / Model 展示，并使用 omp 官网图标作为默认图标。
+- 未匹配 Provider 启用「阻止系统休眠」时，状态栏与其他 Provider 一致追加咖啡杯标记。
+- 统一 omp 默认图标的菜单栏逻辑尺寸，避免显示大于其他 Provider 图标。
+
 ### 新增特性
 
 

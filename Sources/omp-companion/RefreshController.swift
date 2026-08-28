@@ -17,6 +17,8 @@ public final class AppState: ObservableObject, @unchecked Sendable {
     /// 当前选中的供应商 id（每次 fetch 后由 RefreshController 从 BalanceSnapshot 写入）；
     /// 状态栏用它查 LogoCatalog 渲染 NSStatusItem 的 image。
     @Published public private(set) var currentProvider: ProviderID?
+    /// Default Model 中未映射到受支持 Provider 的原始前缀；仅未匹配保底展示时有值。
+    @Published public private(set) var unmatchedProvider: String?
     /// 1 秒一次推进的时间戳;UI 订阅它以重绘倒计时。
     @Published public private(set) var countdownTick: Date = .distantPast
 
@@ -31,6 +33,7 @@ public final class AppState: ObservableObject, @unchecked Sendable {
     public func setCurrentModel(_ m: String?) { self.currentModel = m }
     public func setCaffeinateSession(_ s: CaffeinateSession?) { self.caffeinateSession = s }
     public func setCurrentProvider(_ p: ProviderID?) { self.currentProvider = p }
+    public func setUnmatchedProvider(_ p: String?) { self.unmatchedProvider = p }
     public func advanceCountdownTick() { self.countdownTick = Date() }
 }
 
@@ -93,9 +96,18 @@ public final class RefreshController: @unchecked Sendable {
         switch err {
         case .configMissing:
             self.state.setConfigMissing(true)
+            self.state.setMissingCredential(nil)
+            self.state.setUnmatchedProvider(nil)
             self.state.setCurrentProvider(nil)
+        case .unmatchedProvider(let name):
+            self.state.setConfigMissing(false)
+            self.state.setMissingCredential(nil)
+            self.state.setBalanceError(nil)
+            self.state.setUnmatchedProvider(name)
+            self.state.setCurrentProvider(.unknown)
         case .missingCredential(let key):
             self.state.setConfigMissing(false)
+            self.state.setUnmatchedProvider(nil)
             self.state.setMissingCredential("\(key) 凭据缺失")
             // 即使没拉到余额,凭据缺失这个消息本身也含 provider id —— 把它回填一次,
             // 这样状态栏从 "···" 立刻转到对应 logo + 警示文本,而不是先空白再二次刷新。
@@ -103,11 +115,13 @@ public final class RefreshController: @unchecked Sendable {
         case .fetchError(let reason):
             self.state.setConfigMissing(false)
             self.state.setMissingCredential(nil)
+            self.state.setUnmatchedProvider(nil)
             self.state.setBalanceError(reason)
             // 远端错误：保留上一轮 provider,避免界面跳回 '?' 默认图。
         case .scanError, nil:
             self.state.setConfigMissing(false)
             self.state.setMissingCredential(nil)
+            self.state.setUnmatchedProvider(nil)
             self.state.setBalanceError(nil)
         }
         self.state.setBalance(snap)

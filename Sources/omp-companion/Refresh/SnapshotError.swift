@@ -6,6 +6,8 @@ import Foundation
 public enum SnapshotError: Error, Sendable, Equatable {
     /// 配置文件 / defaultModel 缺失 → AppState.setConfigMissing(true)
     case configMissing
+    /// Default Model 格式正确但 Provider 未受支持 → 不查余额，保留 Provider 展示。
+    case unmatchedProvider(String)
     /// 鉴权失败 / 缺 API key → AppState.setMissingCredential(key)
     case missingCredential(String)
     /// 远端错误,reason 已是 human-readable 中文 → AppState.setBalanceError(reason)

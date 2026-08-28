@@ -30,6 +30,10 @@ _Avoid_: 取样、点查、读数
 omp 配置中的 `modelRoles.default`（如 `deepseek/deepseek-v4-flash:high`）；通过合并 `~/.omp/agent/config.yml` 与项目 `<cwd>/.omp/config.yml` 后读取，是 Provider 路由的依据；runtime 覆盖（`--model` / `--smol` / env vars）不可见。
 _Avoid_: 当前模型、选中模型、会话模型、运行时模型
 
+**Unmatched Provider**:
+去除首尾空白后，首个 `/` 两侧皆非空的 Default Model 中，未映射到受支持 Provider 的原始前缀；其余内容是模型标识。没有可查询的余额 Snapshot。状态栏显示该前缀，下拉菜单首行显示 `Provider (Model)`，随后明确余额查询暂不支持。
+_Avoid_: 未知服务商、兜底服务商
+
 **Daily Usage**:
 当日（本地零点至此刻）omp 全部会话的 token 聚合：{ input, output, cacheCreation, cacheRead, totalInput, realConsumption, messageCount, cacheHitRate }；以单条助手消息的 timestamp 归属，不按会话归属。
 _Avoid_: 今天用量、今日统计

@@ -105,6 +105,56 @@ public enum SelfCheck {
         check("Provider.opencodeZenUnknown", BalanceRegistry.providerID(fromDefaultModel: "opencode-zen/foo") == .unknown)
         check("Provider.unknown", BalanceRegistry.providerID(fromDefaultModel: "zenmux/foo") == .unknown)
 
+        // LiveBalanceSource 未匹配 Provider 保底：不查询余额，也不触发 HTTP。
+        do {
+            final class RecordingHTTP: HTTPClient, @unchecked Sendable {
+                var callCount = 0
+
+                func get(url: URL, headers: [String: String], timeoutSeconds: Double) async throws -> (Data, HTTPURLResponse) {
+                    self.callCount += 1
+                    throw HTTPError.invalidResponse
+                }
+            }
+
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("omp-companion-self-check-\(UUID().uuidString)", isDirectory: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let agentDir = root.appendingPathComponent(".omp/agent", isDirectory: true)
+            do {
+                try FileManager.default.createDirectory(at: agentDir, withIntermediateDirectories: true)
+                try "modelRoles:\n  default: OpenCode-Zen/foo:high\n".write(
+                    to: agentDir.appendingPathComponent("config.yml"),
+                    atomically: true,
+                    encoding: .utf8
+                )
+                let http = RecordingHTTP()
+                let source = LiveBalanceSource(
+                    config: ConfigSource(homeDir: root.path, cwd: root.path, env: [:]),
+                    creds: CredentialsResolver(),
+                    http: http
+                )
+                let capture = sync { await source.capture(now: Date()) }
+                check("Source.unmatched.noSnapshot", capture.0 == nil)
+                check("Source.unmatched.signal", capture.1 == .unmatchedProvider("OpenCode-Zen"))
+                check("Source.unmatched.modelNormalized", capture.model == "OpenCode-Zen/foo:high")
+                check("Source.unmatched.noHTTP", http.callCount == 0)
+
+                try "modelRoles:\n  default: OpenCode-Zen/\n".write(
+                    to: agentDir.appendingPathComponent("config.yml"),
+                    atomically: true,
+                    encoding: .utf8
+                )
+                let invalidCapture = sync { await source.capture(now: Date()) }
+                if case .fetchError = invalidCapture.1 {
+                    check("Source.invalidModel.error", true)
+                } else {
+                    check("Source.invalidModel.error", false)
+                }
+                check("Source.invalidModel.noHTTP", http.callCount == 0)
+            } catch {
+                check("Source.unmatched.setup", false)
+            }
+        }
         // CaffeinateBucket
         check("Bucket.count", CaffeinateBucket.allCases.count == 3)
         check("Bucket.thirty", CaffeinateBucket.thirtyMinutes.minutes == 30)
@@ -197,6 +247,19 @@ public enum SelfCheck {
             let in4 = StatusBarPresenter.Inputs(balance: stale)
             check("Title.stale", StatusBarPresenter.renderTitle(in4).string == "\u{2009}\u{2009}¥12.50·off")
             check("Title.empty", StatusBarPresenter.renderTitle(.init()).string == "\u{2009}\u{2009}···")
+            let unmatched = StatusBarPresenter.Inputs(unmatchedProvider: "OpenCode-Zen")
+            check("Title.unmatched", StatusBarPresenter.renderTitle(unmatched).string == "\u{2009}\u{2009}OpenCode-Zen")
+            let unmatchedActive = StatusBarPresenter.renderTitle(.init(caffeinateSession: sess, unmatchedProvider: "OpenCode-Zen"))
+            check("Title.unmatched.coffeeAtEnd", unmatchedActive.string == "\u{2009}\u{2009}OpenCode-Zen \u{2615}")
+            if let unmatchedCoffeeIdx = unmatchedActive.string.range(of: "\u{2615}")?.lowerBound {
+                let unmatchedColor = unmatchedActive.attributes(
+                    at: unmatchedActive.string.distance(from: unmatchedActive.string.startIndex, to: unmatchedCoffeeIdx),
+                    effectiveRange: nil
+                )[.foregroundColor] as? NSColor
+                check("Title.unmatched.coffeeColor", unmatchedColor == StatusBarPresenter.caffeinateColor)
+            } else {
+                check("Title.unmatched.coffeeColor", false)
+            }
         }
 
         // StatusBarPresenter.renderChrome
@@ -324,6 +387,17 @@ public enum SelfCheck {
                 now: now
             )
             check("Menu.model.stripThinkLevel", thinkItems.contains { $0.title == "OpenCode Go (hy3)" })
+            let unmatchedItems = StatusBarPresenter.renderMenu(
+                .init(
+                    daily: daily,
+                    currentModel: "OpenCode-Zen/foo:high",
+                    unmatchedProvider: "OpenCode-Zen"
+                ),
+                now: now
+            )
+            check("Menu.unmatched.header", unmatchedItems.first?.title == "OpenCode-Zen (foo)")
+            check("Menu.unmatched.notice", unmatchedItems.contains { $0.title == "OpenCode-Zen 暂不支持余额查询" })
+            check("Menu.unmatched.normalActions", unmatchedItems.contains { $0.action == .showSettings } && unmatchedItems.contains { $0.action == .quit })
             check("Menu.header.label", header.title.contains("☕️ 阻止休眠 · 还剩"))
         }
 
@@ -385,6 +459,26 @@ public enum SelfCheck {
                 rc.apply(balanceSnap: nil, balanceErr: .fetchError("请求超时 (10 秒)"), dailySnap: nil, dailyErr: nil)
                 check("Refresh.fetchError", state.lastBalanceError == "请求超时 (10 秒)")
                 check("Refresh.fetchError.noCred", state.missingCredential == nil)
+            }
+            do {
+                let state = AppState()
+                let rc = RefreshController(balanceSource: FakeBalanceSource(), dailySource: FakeDailyUsageSource(), state: state)
+                let old = BalanceSnapshot(
+                    result: BalanceResult(provider: .deepseek, balance: 12.5, currency: .cny),
+                    capturedAt: Date()
+                )
+                rc.apply(balanceSnap: old, balanceErr: nil, balanceModel: "deepseek/deepseek-chat", dailySnap: nil, dailyErr: nil)
+                rc.apply(
+                    balanceSnap: nil,
+                    balanceErr: .unmatchedProvider("OpenCode-Zen"),
+                    balanceModel: "OpenCode-Zen/foo:high",
+                    dailySnap: nil,
+                    dailyErr: nil
+                )
+                check("Refresh.unmatched.noBalance", state.balance == nil)
+                check("Refresh.unmatched.provider", state.unmatchedProvider == "OpenCode-Zen")
+                check("Refresh.unmatched.logo", state.currentProvider == .unknown)
+                check("Refresh.unmatched.noError", state.lastBalanceError == nil && state.missingCredential == nil)
             }
         }
 
@@ -570,8 +664,9 @@ public enum SelfCheck {
         }
             check("Registry.allCount", BalanceRegistry.all().count == 4)
         }
+        check("Logo.unknown.asset", LogoCatalog.assetBaseName(for: .unknown) == "logo_omp")
 
-        // LogoCatalog：每个 ProviderID 的 PNG 都得真实落盘到仓库 Resources/ 下。
+        // LogoCatalog：每个 ProviderID 的图标资源都得真实落盘到仓库 Resources/ 下。
         // SelfCheck 跑在 `swift run --self-check` 下,Bundle.main 不携带 Resources,
         // 所以直接探源文件路径 + 实际加载 NSImage。任何文件被误删/格式坏掉 → 立刻暴露。
         do {
@@ -584,16 +679,15 @@ public enum SelfCheck {
                 (.minimax, "provider_minimax@3x.png"),
                 (.opencodeGo, "provider_opencode_go@2x.png"),
                 (.opencodeGo, "provider_opencode_go@3x.png"),
-                (.unknown, "logo_unknown@2x.png"),
-                (.unknown, "logo_unknown@3x.png"),
+                (.unknown, "logo_omp.svg"),
             ]
             for (pid, name) in needed {
                 let path = "\(repoRoot)/\(name)"
                 check("Logo.asset.\(pid.rawValue).\(name)", fm.fileExists(atPath: path))
             }
-            // PNG signature + NSImage 可加载,在 swift run 进程里即可完成。
+            // PNG signature + 每个资源均可被 NSImage 加载,在 swift run 进程里即可完成。
             let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
-            for name in ["provider_deepseek@3x.png", "provider_minimax@3x.png", "provider_opencode_go@3x.png", "logo_unknown@3x.png"] {
+            for name in ["provider_deepseek@3x.png", "provider_minimax@3x.png", "provider_opencode_go@3x.png"] {
                 let url = URL(fileURLWithPath: "\(repoRoot)/\(name)")
                 guard let data = try? Data(contentsOf: url) else {
                     check("Logo.read.\(name)", false); continue
@@ -602,9 +696,7 @@ public enum SelfCheck {
                 let img = NSImage(contentsOf: url)
                 check("Logo.nsimage.\(name)", img != nil)
             }
-            // LogoCatalog 自身能索引所有 id 且为每个 id 产出 NSImage,
-            // SelfCheck 进程下 Bundle.main 不带 Resources,所以走"由 PNG 直接读取"等价路径:
-            // 把每一张落地 PNG 加载为 NSImage 并标 template,确认 AppKit 能消费。
+            // 每张落地资源均标记为 template,确认 AppKit 能消费。
             // 注意:NSImage 的 KVC key 是 'template' 而不是 'isTemplate'(ObjC property 名)。
             for (pid, name) in needed {
                 let url = URL(fileURLWithPath: "\(repoRoot)/\(name)")
@@ -612,6 +704,11 @@ public enum SelfCheck {
                     img.setValue(true, forKey: "template")
                     check("Logo.template.\(pid.rawValue).\(name)", img.isTemplate)
                 }
+            }
+            let ompURL = URL(fileURLWithPath: "\(repoRoot)/logo_omp.svg")
+            check("Logo.omp.canvas", NSImage(contentsOf: ompURL)?.size == NSSize(width: 16, height: 16))
+            if Bundle.main.bundleURL.pathExtension == "app" {
+                check("Logo.bundle.unknown", LogoCatalog.image(for: .unknown)?.isTemplate == true)
             }
         }
 
