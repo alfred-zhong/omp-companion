@@ -33,6 +33,7 @@
 ### Bug 修复
 - MiniMax logo 换源:弃用 lobe-icons 变体（线条过细，32/48px 蒙版下碎成点阵），改用官网导航栏官方红色 "M" 字形（`filecdn.minimax.chat` 裁剪图形区），重新生成 `provider_minimax@2x/3x.png` 蒙版并保留 `provider_minimax.color.png` 原图
 - OpenCode Go 下拉菜单三窗口重置倒计时格式不统一：5h 窗口为紧凑无空格 `4h59m`，而 7d / 月度窗口为 `3d 14h` / `29d 22h`（中间带空格）。已统一 `BalanceFormatter.formatDuration` 为全程无空格风格 `XdYh`（与 `formatHMS` / 状态栏 `YhYm` 一致）
+- 窄菜单中的用量进度条可能缩成过短：进度条行现按固定布局宽度自动加宽，保证有左标签和无左标签时轨道均至少 60pt；`SelfCheck` 新增两条最小长度断言
 
 
 ### 变更

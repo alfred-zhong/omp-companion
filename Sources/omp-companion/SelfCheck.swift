@@ -282,6 +282,11 @@ public enum SelfCheck {
             check("Menu.opencode.weeklyBar", ocBars.contains { $0.leftText == "7d" && $0.percentText == "12%" && $0.resetText == "5d3h 后重置" && abs($0.value - 12) < 0.001 })
             check("Menu.opencode.monthlyBar", ocBars.contains { $0.leftText == "月度" && $0.percentText == "3%" && $0.resetText == "1d 后重置" && abs($0.value - 3) < 0.001 })
             check("Menu.opencode.noGenericReset", !ocItems.contains { $0.title.hasPrefix("重置剩余时间") })
+            // 进度条最短长度：视图按 minimumWidth 加宽后，两种左标签形态的条长都 ≥ minBarWidth
+            let barMinLabeled = UsageBarMenuItemView.barWidth(totalWidth: UsageBarMenuItemView.minimumWidth(hasLeftLabel: true), hasLeftLabel: true)
+            let barMinUnlabeled = UsageBarMenuItemView.barWidth(totalWidth: UsageBarMenuItemView.minimumWidth(hasLeftLabel: false), hasLeftLabel: false)
+            check("Menu.bar.minLength.labeled", barMinLabeled >= UsageBarMenuItemView.minBarWidth)
+            check("Menu.bar.minLength.unlabeled", barMinUnlabeled >= UsageBarMenuItemView.minBarWidth)
             // stale：进度条行回退纯文本
             let staleSnap = BalanceSnapshot(
                 result: BalanceResult(provider: .opencodeGo, balance: 67, currency: .percent, usedPercent: 67),
