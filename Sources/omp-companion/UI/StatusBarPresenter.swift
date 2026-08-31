@@ -249,8 +249,8 @@ public enum StatusBarPresenter {
 
     private static func missingCredentialMenu(_ missing: String) -> [MenuItemSpec] {
         return [
-            MenuItemSpec(title: "未找到 \(missing) 的 API key", enabled: false),
-            MenuItemSpec(title: "请于 ~/.omp/agent/.env 设置", enabled: false),
+            MenuItemSpec(title: "未找到 \(missing) 凭据", enabled: false),
+            MenuItemSpec(title: "请在 agent .env 中设置", enabled: false),
             .separator,
             MenuItemSpec(title: "打开 README", action: .openReadme),
             .separator,

@@ -4,7 +4,7 @@ Oh My Pi 配套工具：macOS 菜单栏常驻 app，展示 omp 当前默认 Prov
 
 ## 功能
 
-- 菜单栏右上角展示余额（CNY `¥X.XX` 或 percent `X%: YhYm`）
+- 菜单栏右上角展示余额（CNY `¥X.XX`、USD `$X.XX` 或 percent `X%: YhYm`）
 - 弹出菜单展示：
   - 当日：↑输入 · ↓输出 · ⚡缓存读取 · hit%
   - 近 5h：↑输入 · ↓输出 · ⚡缓存读取 · hit%
@@ -19,17 +19,18 @@ Oh My Pi 配套工具：macOS 菜单栏常驻 app，展示 omp 当前默认 Prov
 | MiniMax Token Plan | `minimax/*` | `www.minimaxi.com/v1/token_plan/remains` |
 | MiniMax Coding Plan (CN) | `minimax-code-cn/*` | `api.minimaxi.com/v1/coding_plan/remains` |
 | OpenCode Go | `opencode-go/*` | `opencode.ai/zen/go/v1/usage`（5h / 7d / 月度三窗口已用%） |
+| ccccapi | `ccccapi/*` | `ccccapi.cc/api/v1/user/profile`（账户 USD 余额） |
 
 ## 凭据
-
-镜像 omp 的 `.env` 链：process env → `<cwd>/.env` → `~/.omp/agent/.env` → `~/.omp/.env` → `~/.env`。
+镜像 omp 的 `.env` 链：process env → `<cwd>/.env` → agent `.env` → `~/.omp/.env` → `~/.env`；agent 目录默认 `~/.omp/agent`，设置 `PI_CODING_AGENT_DIR` 时跟随该目录。
 
 | Provider | 所需 env |
 |---|---|
 | DeepSeek | `DEEPSEEK_API_KEY` |
 | MiniMax Token Plan | `MINIMAX_API_KEY` |
 | MiniMax Coding Plan CN | `MINIMAX_CODE_CN_API_KEY` |
-| OpenCode Go | `OPENCODE_API_KEY`（写入 `~/.omp/agent/.env`；`omp login opencode-go` 不自动同步，见 `docs/adr/0005-opencode-go-credential-from-dotenv.md`） |
+| ccccapi | `CCCAPI_ACCESS_TOKEN`（网页登录 access token，不是 `sk-...` 模型 API Key） |
+| OpenCode Go | `OPENCODE_API_KEY`（写入 agent `.env`；`omp login opencode-go` 不自动同步，见 `docs/adr/0005-opencode-go-credential-from-dotenv.md`） |
 
 ## 编译与运行
 
@@ -52,7 +53,7 @@ open build/omp-companion.app
 swift run omp-companion --self-check
 ```
 
-输出 `[self-check] OK (全部通过)` 即表示所有纯函数（TokenStats 派生、12 小时桶归属、CompactFormatter、BalanceFormatter、JSONL 解析、复合去重键、Provider 路由）通过。
+输出 `[self-check] OK (全部通过)` 即表示所有纯函数与集成断言（TokenStats 派生、12 小时桶归属、CompactFormatter、BalanceFormatter、JSONL 解析、复合去重键、Provider 路由、ccccapi 严格响应解析、USD 格式化、stale 行为）通过。
 
 ## 架构
 
@@ -62,6 +63,13 @@ swift run omp-companion --self-check
 - `0002-independent-cache-paths.md` — 独立缓存路径决策（已被 0004 取代）
 - `0003-swift-rewrite-instead-of-cli.md` — 为何完全 Swift 重写而非 shell-out 上游 CLI
 - `0004-no-local-cache.md` — 为何去掉本地缓存，定时刷新直接执行
+ 
+## ccccapi 安全说明
+
+- `CCCAPI_ACCESS_TOKEN` 是网页登录 JWT/access token，只从 `.env` 链读取；空白值视为缺失。
+- 查询只读取 `data.balance` 并按 USD 显示；不保存或展示邮箱、用户 ID、API Key、订阅等资料。
+- 已暴露的 token 应退出登录、撤销会话或重新登录后轮换；不要复用已暴露 token。
+
 
 ## 已知限制
 

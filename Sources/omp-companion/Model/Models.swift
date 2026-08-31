@@ -8,6 +8,7 @@ public enum ProviderID: String, CaseIterable, Sendable {
     case minimax
     case minimaxCodeCN = "minimax-code-cn"
     case opencodeGo = "opencode-go"
+    case ccccapi
     case unknown
 
     public init(rawLowercased: String) {
@@ -21,6 +22,7 @@ public enum ProviderID: String, CaseIterable, Sendable {
         case .minimax: return "MiniMax"
         case .minimaxCodeCN: return "MiniMax Coding Plan CN"
         case .opencodeGo: return "OpenCode Go"
+        case .ccccapi: return "cccc api"
         case .unknown: return "未知"
         }
     }
@@ -57,6 +59,7 @@ public struct BalanceResult: Equatable, Sendable {
 
 public enum BalanceCurrency: String, Sendable {
     case cny = "CNY"
+    case usd = "USD"
     case percent = "PERCENT"
 }
 

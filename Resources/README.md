@@ -4,13 +4,14 @@
 
 ## 状态栏 logo
 
-运行时由 `LogoCatalog` 集中加载并标记为 template。Provider 资产是黑透 PNG 蒙版；未匹配 Provider 使用 omp 官方 SVG 图标。
+运行时由 `LogoCatalog` 集中加载并标记为 template。DeepSeek / MiniMax / OpenCode Go 使用黑透 PNG 蒙版；ccccapi 与未匹配 Provider 使用 SVG 图标。
 
 | 文件名 | 含义 |
 |---|---|
 | `provider_deepseek@2x.png` / `provider_deepseek@3x.png` | DeepSeek（32×32 / 48×48） |
 | `provider_minimax@2x.png` / `provider_minimax@3x.png` | MiniMax Token Plan 与 MiniMax Coding Plan 复用（32×32 / 48×48） |
 | `logo_omp.svg` | ProviderID 路由不到（`.unknown`）时使用的 omp 官方图标 |
+| `provider_ccccapi.svg` | ccccapi 使用的 Sub2API SVG logo（构建时随 app 本地打包） |
 
 ## 来源
 
@@ -19,6 +20,7 @@
 | DeepSeek | `https://cdn.deepseek.com/platform/favicon.png` | 2026-08-17 拉取 |
 | MiniMax | 官网导航栏 logo：`https://filecdn.minimax.chat/public/969d635c-cab6-45cc-8d61-47c9fe40c81f.png`（裁剪图形区 x 0-152 / y 0-129，官方红色 "M" 字形，非 lobe-icons 变体） | 2026-08-17 重新制作 |
 | omp | 用户提供的 omp 官网 `pi-mark-2` SVG | 2026-08-28 更新 |
+| ccccapi | `https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/assets/logo.svg`（Sub2API upstream asset，本地提交） | 2026-08-31 |
 
 ## 重新生成 Provider PNG 蒙版
 

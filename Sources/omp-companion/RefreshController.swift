@@ -117,16 +117,29 @@ public final class RefreshController: @unchecked Sendable {
             self.state.setMissingCredential(nil)
             self.state.setUnmatchedProvider(nil)
             self.state.setBalanceError(reason)
-            // 远端错误：保留上一轮 provider,避免界面跳回 '?' 默认图。
+            // 远端暂时不可用：保留上一份余额并标记 stale；没有旧快照时保持空白。
         case .scanError, nil:
             self.state.setConfigMissing(false)
             self.state.setMissingCredential(nil)
-            self.state.setUnmatchedProvider(nil)
             self.state.setBalanceError(nil)
         }
-        self.state.setBalance(snap)
-        // 成功 fetch 后从 snapshot 派生 currentProvider。
-        if snap != nil { self.state.setCurrentProvider(snap?.result.provider) }
+
+        let nextBalance: BalanceSnapshot?
+        if case .fetchError = err, snap == nil, let old = self.state.balance {
+            nextBalance = BalanceSnapshot(
+                result: old.result,
+                capturedAt: old.capturedAt,
+                isStale: true,
+                quotaWindows: old.quotaWindows
+            )
+        } else {
+            nextBalance = snap
+        }
+        self.state.setBalance(nextBalance)
+        // 成功 fetch 后从 snapshot 派生 currentProvider；stale 快照继续使用旧 provider。
+        if let nextBalance, !nextBalance.isStale {
+            self.state.setCurrentProvider(nextBalance.result.provider)
+        }
     }
 
     private func applyDaily(snap: DailyUsageSnapshot?, err: SnapshotError?) {

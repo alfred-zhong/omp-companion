@@ -102,8 +102,15 @@ public enum SelfCheck {
         check("Provider.minimax", BalanceRegistry.providerID(fromDefaultModel: "minimax/foo") == .minimax)
         check("Provider.minimaxCodeCN", BalanceRegistry.providerID(fromDefaultModel: "minimax-code-cn/MiniMax-M3:high") == .minimaxCodeCN)
         check("Provider.opencodeGo", BalanceRegistry.providerID(fromDefaultModel: "opencode-go/deepseek-v4-flash:high") == .opencodeGo)
+        check("Provider.ccccapi", BalanceRegistry.providerID(fromDefaultModel: "ccccapi/claude-sonnet") == .ccccapi)
         check("Provider.opencodeZenUnknown", BalanceRegistry.providerID(fromDefaultModel: "opencode-zen/foo") == .unknown)
         check("Provider.unknown", BalanceRegistry.providerID(fromDefaultModel: "zenmux/foo") == .unknown)
+        let relocatedCreds = CredentialsResolver(
+            homeDir: "/tmp/omp-home",
+            cwd: "/tmp/omp-cwd",
+            environment: ["PI_CODING_AGENT_DIR": "/tmp/omp-relocated-agent"]
+        )
+        check("Credentials.agentDirOverride", relocatedCreds.candidateEnvFiles()[1] == "/tmp/omp-relocated-agent/.env")
 
         // LiveBalanceSource 未匹配 Provider 保底：不查询余额，也不触发 HTTP。
         do {
@@ -459,8 +466,21 @@ public enum SelfCheck {
                 rc.apply(balanceSnap: nil, balanceErr: .fetchError("请求超时 (10 秒)"), dailySnap: nil, dailyErr: nil)
                 check("Refresh.fetchError", state.lastBalanceError == "请求超时 (10 秒)")
                 check("Refresh.fetchError.noCred", state.missingCredential == nil)
+                check("Refresh.fetchError.noOldBalance", state.balance == nil)
             }
             do {
+            do {
+                let state = AppState()
+                let rc = RefreshController(balanceSource: FakeBalanceSource(), dailySource: FakeDailyUsageSource(), state: state)
+                let old = BalanceSnapshot(
+                    result: BalanceResult(provider: .ccccapi, balance: 12.34, currency: .usd),
+                    capturedAt: Date()
+                )
+                rc.apply(balanceSnap: old, balanceErr: nil, balanceModel: "ccccapi/model", dailySnap: nil, dailyErr: nil)
+                rc.apply(balanceSnap: nil, balanceErr: .fetchError("响应解析失败"), balanceModel: "ccccapi/model", dailySnap: nil, dailyErr: nil)
+                check("Refresh.fetchError.stale", state.balance?.isStale == true)
+                check("Refresh.fetchError.staleValue", state.balance?.result.balance == 12.34)
+            }
                 let state = AppState()
                 let rc = RefreshController(balanceSource: FakeBalanceSource(), dailySource: FakeDailyUsageSource(), state: state)
                 let old = BalanceSnapshot(
@@ -662,9 +682,72 @@ public enum SelfCheck {
             }
             check("OpenCode.badPercent.throws", thrown == .invalidResponse)
         }
-            check("Registry.allCount", BalanceRegistry.all().count == 4)
+        do {
+            final class RecordingHTTP: HTTPClient, @unchecked Sendable {
+                let body: String
+                var calls = 0
+                var requestedURL: URL?
+                var requestedHeaders: [String: String] = [:]
+
+                init(body: String) { self.body = body }
+
+                func get(url: URL, headers: [String: String], timeoutSeconds: Double) async throws -> (Data, HTTPURLResponse) {
+                    calls += 1
+                    requestedURL = url
+                    requestedHeaders = headers
+                    let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
+                    return (body.data(using: .utf8)!, response)
+                }
+            }
+
+            let p = BalanceRegistry.ccccapi()
+            let http = RecordingHTTP(body: #"{"code":0,"message":"success","data":{"balance":12.34,"email":"redacted"}}"#)
+            let result: BalanceResult? = withCreds("CCCAPI_ACCESS_TOKEN", "test-token") {
+                sync {
+                    let creds = CredentialsResolver()
+                    return try? await p.fetch(creds: creds, http: http)
+                }
+            }
+            check("Ccccapi.parsed", result?.provider == .ccccapi && result?.balance == 12.34 && result?.currency == .usd)
+            check("Ccccapi.request.url", http.requestedURL?.absoluteString == "https://ccccapi.cc/api/v1/user/profile")
+            check("Ccccapi.request.auth", http.requestedHeaders["Authorization"] == "Bearer test-token")
+
+            let malformedHTTP = RecordingHTTP(body: #"{"code":0,"message":"success","data":{}}"#)
+            let malformed: HTTPError? = withCreds("CCCAPI_ACCESS_TOKEN", "test-token") {
+                sync {
+                    let creds = CredentialsResolver()
+                    do {
+                        _ = try await p.fetch(creds: creds, http: malformedHTTP)
+                        return nil
+                    } catch let error as HTTPError {
+                        return error
+                    } catch {
+                        return nil
+                    }
+                }
+            }
+            check("Ccccapi.strict", malformed == .invalidResponse)
+
+            let blankHTTP = RecordingHTTP(body: #"{"code":0,"message":"success","data":{"balance":1}}"#)
+            let blankCreds = CredentialsResolver(environment: ["CCCAPI_ACCESS_TOKEN": "   "])
+            let blank: HTTPError? = sync {
+                do {
+                    _ = try await p.fetch(creds: blankCreds, http: blankHTTP)
+                    return nil
+                } catch let error as HTTPError {
+                    return error
+                } catch {
+                    return nil
+                }
+            }
+            check("Ccccapi.blankCredential", blank == .missingCredential && blankHTTP.calls == 0)
+        }
+        check("Balance.usd.status", BalanceFormatter.statusBarText(BalanceResult(provider: .ccccapi, balance: 12.3, currency: .usd)) == "$12.30")
+        check("Balance.usd.menu", BalanceFormatter.menuBarText(BalanceResult(provider: .ccccapi, balance: 12.3, currency: .usd)) == "$12.30")
+            check("Registry.allCount", BalanceRegistry.all().count == 5)
         }
         check("Logo.unknown.asset", LogoCatalog.assetBaseName(for: .unknown) == "logo_omp")
+        check("Logo.ccccapi.asset", LogoCatalog.assetBaseName(for: .ccccapi) == "provider_ccccapi")
 
         // LogoCatalog：每个 ProviderID 的图标资源都得真实落盘到仓库 Resources/ 下。
         // SelfCheck 跑在 `swift run --self-check` 下,Bundle.main 不携带 Resources,
@@ -679,6 +762,7 @@ public enum SelfCheck {
                 (.minimax, "provider_minimax@3x.png"),
                 (.opencodeGo, "provider_opencode_go@2x.png"),
                 (.opencodeGo, "provider_opencode_go@3x.png"),
+                (.ccccapi, "provider_ccccapi.svg"),
                 (.unknown, "logo_omp.svg"),
             ]
             for (pid, name) in needed {

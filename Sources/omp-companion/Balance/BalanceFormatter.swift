@@ -7,6 +7,8 @@ public enum BalanceFormatter {
         switch result.currency {
         case .cny:
             return String(format: "¥%.2f", result.balance)
+        case .usd:
+            return String(format: "$%.2f", result.balance)
         case .percent:
             let used = Int(result.usedPercent ?? max(0, 100 - result.balance))
             return "\(used)%"
@@ -19,6 +21,8 @@ public enum BalanceFormatter {
         switch result.currency {
         case .cny:
             return String(format: "¥%.2f", result.balance)
+        case .usd:
+            return String(format: "$%.2f", result.balance)
         case .percent:
             let used = Int(result.usedPercent ?? max(0, 100 - result.balance))
             return "\(used)%"

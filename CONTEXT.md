@@ -13,9 +13,16 @@ NSStatusItem 在系统菜单栏中占据的一个槽位及其图标；omp-compan
 _Avoid_: 状态栏图标、状态栏 entry
 
 **Provider**:
-模型服务商或订阅网关（DeepSeek、MiniMax Token Plan、MiniMax Coding Plan、OpenCode Go 等）；每个 Provider 暴露一个查询余额/配额的 REST 端点与一种鉴权凭据。OpenCode Go 是订阅网关：前端多家模型厂商，返回的是额度窗口已用百分比而非货币余额。
+模型服务商或订阅网关（DeepSeek、MiniMax Token Plan、MiniMax Coding Plan、OpenCode Go、ccccapi 等）；每个 Provider 暴露一个查询余额/配额的 REST 端点与一种鉴权凭据。OpenCode Go 是订阅网关：前端多家模型厂商，返回的是额度窗口已用百分比而非货币余额；ccccapi 是账户网关，返回用户账户 USD 余额。
 _Avoid_: 服务商、模型提供方、平台
 
+**Account Balance**:
+ccccapi 用户账户的 USD 余额；只读取 `data.balance`，不等同于模型 API Key 额度、token 用量或用户身份资料。
+_Avoid_: API key 余额、账户资料、额度用量
+
+**Ccccapi Access Token**:
+ccccapi 网页会话 access token；从 `.env` 链的 `CCCAPI_ACCESS_TOKEN` 读取，空白值视为缺失，不在本地保存完整响应或打印 token。
+_Avoid_: API key、模型密钥
 
 **Quota Window**:
 OpenCode Go 订阅的额度窗口：5 小时滚动 / 7 天 / 月度（订阅周年重置）；每窗口由已用百分比（0–100 整数）、状态（正常 / 已限流）、重置时刻组成。状态栏展示 5h 窗口，下拉菜单列出全部窗口。

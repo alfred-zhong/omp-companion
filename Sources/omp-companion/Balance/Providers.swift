@@ -223,11 +223,61 @@ public struct OpenCodeGoProvider: BalanceProvider {
     }
 }
 
+// MARK: - ccccapi
+
+/// ccccapi（sub2api 系列网关）账户余额 provider。
+/// 只读取用户资料响应中的 USD `balance`，不解析身份、API key 或订阅字段。
+public struct CcccapiProvider: BalanceProvider {
+    public let id: ProviderID = .ccccapi
+    private let endpoint = URL(string: "https://ccccapi.cc/api/v1/user/profile")!
+
+    public init() {}
+
+    public func hasCredential(creds: CredentialsResolver) -> Bool {
+        creds.resolve("CCCAPI_ACCESS_TOKEN") != nil
+    }
+
+    public func fetch(creds: CredentialsResolver, http: HTTPClient) async throws -> BalanceResult {
+        guard let token = creds.resolve("CCCAPI_ACCESS_TOKEN") else {
+            throw HTTPError.missingCredential
+        }
+        let (data, _) = try await http.get(
+            url: endpoint,
+            headers: ["Authorization": "Bearer \(token)"],
+            timeoutSeconds: 10
+        )
+        let response: APIResponse
+        do {
+            response = try JSONDecoder().decode(APIResponse.self, from: data)
+        } catch {
+            throw HTTPError.invalidResponse
+        }
+        guard response.code == 0, response.data.balance.isFinite else {
+            throw HTTPError.invalidResponse
+        }
+        return BalanceResult(
+            provider: .ccccapi,
+            balance: response.data.balance,
+            currency: .usd
+        )
+    }
+
+    private struct APIResponse: Decodable {
+        let code: Int
+        let message: String
+        let data: Profile
+    }
+
+    private struct Profile: Decodable {
+        let balance: Double
+    }
+}
+
 // MARK: - Registry
 
 public enum BalanceRegistry {
     public static func all() -> [BalanceProvider] {
-        [DeepSeekProvider(), tokenPlan(), codingPlanCN(), opencodeGo()]
+        [DeepSeekProvider(), tokenPlan(), codingPlanCN(), opencodeGo(), ccccapi()]
     }
 
     public static func provider(for id: ProviderID) -> BalanceProvider? {
@@ -236,12 +286,16 @@ public enum BalanceRegistry {
         case .minimax: return tokenPlan()
         case .minimaxCodeCN: return codingPlanCN()
         case .opencodeGo: return opencodeGo()
+        case .ccccapi: return ccccapi()
         case .unknown: return nil
         }
     }
 
     public static func opencodeGo() -> OpenCodeGoProvider {
         OpenCodeGoProvider()
+    }
+    public static func ccccapi() -> CcccapiProvider {
+        CcccapiProvider()
     }
 
     public static func tokenPlan() -> MiniMaxRemainsProvider {

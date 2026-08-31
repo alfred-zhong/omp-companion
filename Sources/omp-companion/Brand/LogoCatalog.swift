@@ -18,18 +18,19 @@ public enum LogoCatalog {
         case .deepseek:        return "provider_deepseek"
         case .minimax,
              .minimaxCodeCN:  return "provider_minimax"
-        case .opencodeGo:      return "provider_opencode_go"
+        case .opencodeGo:     return "provider_opencode_go"
+        case .ccccapi:        return "provider_ccccapi"
         case .unknown:         return "logo_omp"
         }
     }
 
     private static func assetExtension(for id: ProviderID) -> String {
-        id == .unknown ? "svg" : "png"
+        [.unknown, .ccccapi].contains(id) ? "svg" : "png"
     }
 
     private static func assetCandidates(for id: ProviderID) -> [String] {
         let base = assetBaseName(for: id)
-        return id == .unknown ? [base] : scaleCandidates(base: base)
+        return [.unknown, .ccccapi].contains(id) ? [base] : scaleCandidates(base: base)
     }
 
     /// 在给定 bundle 里查 logo,命中后立即标记为 template。未命中返回 nil。
@@ -43,6 +44,7 @@ public enum LogoCatalog {
             if let url = bundle.url(forResource: stripped, withExtension: ext)
                        ?? bundle.url(forResource: stripped, withExtension: ext, subdirectory: "Resources"),
                let img = NSImage(contentsOf: url) {
+                img.size = NSSize(width: 16, height: 16)
                 img.setValue(true, forKey: "template")
                 return img
             }
@@ -53,6 +55,7 @@ public enum LogoCatalog {
             let path = URL(fileURLWithPath: resourceDir).appendingPathComponent(name + ".\(ext)").path
             if FileManager.default.fileExists(atPath: path),
                let img = NSImage(contentsOf: URL(fileURLWithPath: path)) {
+                img.size = NSSize(width: 16, height: 16)
                 img.setValue(true, forKey: "template")
                 return img
             }
