@@ -253,6 +253,13 @@ public enum SelfCheck {
             )
             let in4 = StatusBarPresenter.Inputs(balance: stale)
             check("Title.stale", StatusBarPresenter.renderTitle(in4).string == "\u{2009}\u{2009}¥12.50·off")
+            let staleCcccapi = BalanceSnapshot(
+                result: BalanceResult(provider: .ccccapi, balance: 12.5, currency: .usd),
+                capturedAt: Date(),
+                isStale: true
+            )
+            let ccccapiTitle = StatusBarPresenter.renderTitle(.init(balance: staleCcccapi)).string
+            check("Title.ccccapiStaleWithoutOff", ccccapiTitle == "\u{2009}\u{2009}$12.50")
             check("Title.empty", StatusBarPresenter.renderTitle(.init()).string == "\u{2009}\u{2009}···")
             let unmatched = StatusBarPresenter.Inputs(unmatchedProvider: "OpenCode-Zen")
             check("Title.unmatched", StatusBarPresenter.renderTitle(unmatched).string == "\u{2009}\u{2009}OpenCode-Zen")

@@ -166,7 +166,7 @@ public enum StatusBarPresenter {
             let text = BalanceFormatter.statusBarText(balance.result)
             let active = inputs.caffeinateSession != nil
             let padded = active ? " \(text) " : text
-            body = composeBalanced(balanceText: padded, isStale: balance.isStale, caffeinateActive: active)
+            body = composeBalanced(balanceText: padded, isStale: balance.isStale && balance.result.provider != .ccccapi, caffeinateActive: active)
         } else {
             body = NSAttributedString(string: "\(logoTextGap)···")
         }
