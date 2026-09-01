@@ -6,13 +6,13 @@
 
 ### 新增特性
 
-- 新增 ccccapi Provider：`ccccapi/*` 使用 `.env` 中的 `CCCAPI_ACCESS_TOKEN` 查询账户 USD 余额；只解析标准用户资料响应的 `data.balance`，不读取或展示身份、API Key、订阅等字段（决策见 `docs/adr/0006-ccccapi-account-balance.md`）。
+- 新增 ccccapi Provider：`ccccapi/*` 使用 `.env` 中的 `CCCAPI_ACCESS_TOKEN` 查询账户 USD 余额；只解析标准用户资料响应的 `data.balance`，内部保留 USD，展示按 `$10 = ¥1` 转为人民币，不读取或展示身份、API Key、订阅等字段（决策见 `docs/adr/0006-ccccapi-account-balance.md`）。
 - 菜单栏新增构建时本地打包的 ccccapi Sub2API SVG logo（`provider_ccccapi.svg`）。
 
 ### 变更
 
 - 凭据解析的 agent `.env` 跟随 `PI_CODING_AGENT_DIR`；空白凭据统一视为缺失，不发送空 Bearer token。
-- Provider 远端请求失败时保留上一份余额快照并标记 stale；缺配置、未匹配 Provider、凭据缺失仍清空余额。
+- Provider 远端请求失败时通常保留上一份余额快照并标记 stale；ccccapi 请求失败或鉴权失败时清除旧余额，状态栏与菜单显示 `NaN` 并保留具体错误；缺配置、未匹配 Provider、凭据缺失仍清空余额。
 
 ### Bug 修复
 - 未匹配但格式正确的 Provider 不再触发余额请求；状态栏与菜单保留 Provider / Model 展示，并使用 omp 官网图标作为默认图标。

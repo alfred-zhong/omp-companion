@@ -6,7 +6,7 @@ public protocol HTTPClient: Sendable {
 
 public enum HTTPError: Error, Equatable, Sendable {
     case timeout
-    case unauthorized
+    case unauthorized(status: Int)
     case rateLimited
     case server(status: Int)
     case invalidResponse
@@ -24,7 +24,7 @@ public struct URLSessionHTTPClient: HTTPClient {
             guard let http = resp as? HTTPURLResponse else { throw HTTPError.invalidResponse }
             switch http.statusCode {
             case 200..<300: return (data, http)
-            case 401: throw HTTPError.unauthorized
+            case 401, 403: throw HTTPError.unauthorized(status: http.statusCode)
             case 429: throw HTTPError.rateLimited
             default: throw HTTPError.server(status: http.statusCode)
             }

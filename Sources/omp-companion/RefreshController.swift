@@ -4,6 +4,8 @@ import Combine
 /// 状态机:菜单栏所需的两路快照 + 阻止系统休眠会话。
 public final class AppState: ObservableObject, @unchecked Sendable {
     @Published public private(set) var balance: BalanceSnapshot?
+    /// ccccapi 已执行余额请求但未取得可信余额时的显式失败状态。
+    @Published public private(set) var balanceUnavailableFor: ProviderID?
     @Published public private(set) var daily: DailyUsageSnapshot?
     @Published public private(set) var lastBalanceError: String?
     @Published public private(set) var lastDailyError: String?
@@ -25,6 +27,7 @@ public final class AppState: ObservableObject, @unchecked Sendable {
     public init() {}
 
     public func setBalance(_ snap: BalanceSnapshot?) { self.balance = snap }
+    public func setBalanceUnavailableFor(_ provider: ProviderID?) { self.balanceUnavailableFor = provider }
     public func setDaily(_ snap: DailyUsageSnapshot?) { self.daily = snap }
     public func setBalanceError(_ msg: String?) { self.lastBalanceError = msg }
     public func setDailyError(_ msg: String?) { self.lastDailyError = msg }
@@ -98,16 +101,21 @@ public final class RefreshController: @unchecked Sendable {
             self.state.setConfigMissing(true)
             self.state.setMissingCredential(nil)
             self.state.setUnmatchedProvider(nil)
+            self.state.setBalanceError(nil)
+            self.state.setBalanceUnavailableFor(nil)
             self.state.setCurrentProvider(nil)
         case .unmatchedProvider(let name):
             self.state.setConfigMissing(false)
             self.state.setMissingCredential(nil)
             self.state.setBalanceError(nil)
+            self.state.setBalanceUnavailableFor(nil)
             self.state.setUnmatchedProvider(name)
             self.state.setCurrentProvider(.unknown)
         case .missingCredential(let key):
             self.state.setConfigMissing(false)
             self.state.setUnmatchedProvider(nil)
+            self.state.setBalanceError(nil)
+            self.state.setBalanceUnavailableFor(nil)
             self.state.setMissingCredential("\(key) 凭据缺失")
             // 即使没拉到余额,凭据缺失这个消息本身也含 provider id —— 把它回填一次,
             // 这样状态栏从 "···" 立刻转到对应 logo + 警示文本,而不是先空白再二次刷新。
@@ -117,21 +125,34 @@ public final class RefreshController: @unchecked Sendable {
             self.state.setMissingCredential(nil)
             self.state.setUnmatchedProvider(nil)
             self.state.setBalanceError(reason)
-            // 远端暂时不可用：保留上一份余额并标记 stale；没有旧快照时保持空白。
+            let failedProvider = model.map { BalanceRegistry.providerID(fromDefaultModel: $0) }
+            if failedProvider == .ccccapi {
+                self.state.setBalanceUnavailableFor(.ccccapi)
+                self.state.setCurrentProvider(.ccccapi)
+            } else {
+                self.state.setBalanceUnavailableFor(nil)
+            }
         case .scanError, nil:
             self.state.setConfigMissing(false)
             self.state.setMissingCredential(nil)
             self.state.setBalanceError(nil)
+            self.state.setBalanceUnavailableFor(nil)
         }
 
         let nextBalance: BalanceSnapshot?
-        if case .fetchError = err, snap == nil, let old = self.state.balance {
-            nextBalance = BalanceSnapshot(
-                result: old.result,
-                capturedAt: old.capturedAt,
-                isStale: true,
-                quotaWindows: old.quotaWindows
-            )
+        if case .fetchError = err, snap == nil {
+            if self.state.balanceUnavailableFor == .ccccapi {
+                nextBalance = nil
+            } else if let old = self.state.balance {
+                nextBalance = BalanceSnapshot(
+                    result: old.result,
+                    capturedAt: old.capturedAt,
+                    isStale: true,
+                    quotaWindows: old.quotaWindows
+                )
+            } else {
+                nextBalance = nil
+            }
         } else {
             nextBalance = snap
         }
@@ -140,6 +161,7 @@ public final class RefreshController: @unchecked Sendable {
         if let nextBalance, !nextBalance.isStale {
             self.state.setCurrentProvider(nextBalance.result.provider)
         }
+
     }
 
     private func applyDaily(snap: DailyUsageSnapshot?, err: SnapshotError?) {

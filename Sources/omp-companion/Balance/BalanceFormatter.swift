@@ -8,25 +8,18 @@ public enum BalanceFormatter {
         case .cny:
             return String(format: "¥%.2f", result.balance)
         case .usd:
-            return String(format: "$%.2f", result.balance)
+            return result.provider == .ccccapi
+                ? String(format: "¥%.2f", result.balance / 10)
+                : String(format: "$%.2f", result.balance)
         case .percent:
             let used = Int(result.usedPercent ?? max(0, 100 - result.balance))
             return "\(used)%"
         }
     }
 
-    /// 下拉菜单余额段(`BalanceResult` → 余额文案,不含 provider 前缀)。
-    /// percent:始终返回 `"8%"`(有 reset 时,reset 另起一行由 `StatusBarPresenter` 拼装);cny:`"¥12.50"`。
+    /// percent:始终返回 `"8%"`(有 reset 时,reset 另起一行由 `StatusBarPresenter` 拼装);cny:`"¥12.50"`；ccccapi USD 按 10:1 转为 CNY。
     public static func menuBarText(_ result: BalanceResult) -> String {
-        switch result.currency {
-        case .cny:
-            return String(format: "¥%.2f", result.balance)
-        case .usd:
-            return String(format: "$%.2f", result.balance)
-        case .percent:
-            let used = Int(result.usedPercent ?? max(0, 100 - result.balance))
-            return "\(used)%"
-        }
+        statusBarText(result)
     }
 
     public static func formatHMS(_ seconds: TimeInterval) -> String {

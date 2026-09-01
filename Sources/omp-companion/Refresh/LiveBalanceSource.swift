@@ -46,15 +46,15 @@ public struct LiveBalanceSource: BalanceSource {
             )
             return (snap, nil, model: model)
         } catch {
-            return (nil, .fetchError(humanReadable(error)), model: model)
+            return (nil, .fetchError(Self.humanReadable(error)), model: model)
         }
     }
 
-    private func humanReadable(_ error: Error) -> String {
+    static func humanReadable(_ error: Error) -> String {
         if let http = error as? HTTPError {
             switch http {
             case .timeout: return "请求超时 (10 秒)"
-            case .unauthorized: return "鉴权失败 (401)"
+            case .unauthorized(let status): return "鉴权失败 (\(status))"
             case .rateLimited: return "请求过快 (429)"
             case .server(let s): return "服务异常 (\(s))"
             case .invalidResponse: return "响应解析失败"

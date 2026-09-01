@@ -149,17 +149,11 @@ public struct OpenCodeGoProvider: BalanceProvider {
         guard let key = creds.resolve("OPENCODE_API_KEY") else {
             throw HTTPError.missingCredential
         }
-        let (data, _): (Data, HTTPURLResponse)
-        do {
-            (data, _) = try await http.get(
-                url: endpoint,
-                headers: ["Authorization": "Bearer \(key)"],
-                timeoutSeconds: 10
-            )
-        } catch HTTPError.server(status: 403) {
-            // 403 = 无 Go 订阅（与 401 同属"凭据/订阅失效"，omp 同语义）。
-            throw HTTPError.unauthorized
-        }
+        let (data, _) = try await http.get(
+            url: endpoint,
+            headers: ["Authorization": "Bearer \(key)"],
+            timeoutSeconds: 10
+        )
         let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
         guard let usage = json?["usage"] as? [String: Any] else {
             throw HTTPError.invalidResponse

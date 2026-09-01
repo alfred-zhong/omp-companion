@@ -53,6 +53,9 @@ public enum SelfCheck {
         let cny = BalanceResult(provider: .deepseek, balance: 12.5, currency: .cny)
         check("Balance.CNY", BalanceFormatter.statusBarText(cny) == "¥12.50")
         check("Balance.menuBarTextCNY", BalanceFormatter.menuBarText(cny) == "¥12.50")
+        let ccccapi = BalanceResult(provider: .ccccapi, balance: 12.3, currency: .usd)
+        check("Balance.ccccapi.status", BalanceFormatter.statusBarText(ccccapi) == "¥1.23")
+        check("Balance.ccccapi.menu", BalanceFormatter.menuBarText(ccccapi) == "¥1.23")
         let pct1 = BalanceResult(provider: .minimaxCodeCN, balance: 92, currency: .percent, usedPercent: 8, resetRemaining: 4 * 3600 + 30 * 60)
         let pct2 = BalanceResult(provider: .minimaxCodeCN, balance: 92, currency: .percent, usedPercent: 8, resetRemaining: nil)
         check("Balance.menuBarTextPercentWithReset", BalanceFormatter.menuBarText(pct1) == "8%")
@@ -259,7 +262,7 @@ public enum SelfCheck {
                 isStale: true
             )
             let ccccapiTitle = StatusBarPresenter.renderTitle(.init(balance: staleCcccapi)).string
-            check("Title.ccccapiStaleWithoutOff", ccccapiTitle == "\u{2009}\u{2009}$12.50")
+            check("Title.ccccapiStale", ccccapiTitle == "\u{2009}\u{2009}¥1.25·off")
             check("Title.empty", StatusBarPresenter.renderTitle(.init()).string == "\u{2009}\u{2009}···")
             let unmatched = StatusBarPresenter.Inputs(unmatchedProvider: "OpenCode-Zen")
             check("Title.unmatched", StatusBarPresenter.renderTitle(unmatched).string == "\u{2009}\u{2009}OpenCode-Zen")
@@ -320,6 +323,17 @@ public enum SelfCheck {
                 now: now
             )
             check("Menu.normal.hasBalance", items.contains { $0.title == "DeepSeek" } && items.contains { $0.title == "余额 ¥12.50" })
+            let unavailableItems = StatusBarPresenter.renderMenu(
+                .init(
+                    balanceUnavailableFor: .ccccapi,
+                    lastBalanceError: "鉴权失败 (403)",
+                    currentModel: "ccccapi/claude-sonnet"
+                ),
+                now: now
+            )
+            check("Menu.ccccapiUnavailable.header", unavailableItems.contains { $0.title == "cccc api (claude-sonnet)" })
+            check("Menu.ccccapiUnavailable.nan", unavailableItems.contains { $0.title == "余额: NaN" })
+            check("Menu.ccccapiUnavailable.error", unavailableItems.contains { $0.title == "错误: 鉴权失败 (403)" })
             let pctSnap = BalanceSnapshot(
                 result: BalanceResult(provider: .minimaxCodeCN, balance: 92, currency: .percent, usedPercent: 8, resetRemaining: 4 * 3600 + 30 * 60),
                 capturedAt: Date(),
@@ -476,7 +490,6 @@ public enum SelfCheck {
                 check("Refresh.fetchError.noOldBalance", state.balance == nil)
             }
             do {
-            do {
                 let state = AppState()
                 let rc = RefreshController(balanceSource: FakeBalanceSource(), dailySource: FakeDailyUsageSource(), state: state)
                 let old = BalanceSnapshot(
@@ -484,10 +497,25 @@ public enum SelfCheck {
                     capturedAt: Date()
                 )
                 rc.apply(balanceSnap: old, balanceErr: nil, balanceModel: "ccccapi/model", dailySnap: nil, dailyErr: nil)
-                rc.apply(balanceSnap: nil, balanceErr: .fetchError("响应解析失败"), balanceModel: "ccccapi/model", dailySnap: nil, dailyErr: nil)
-                check("Refresh.fetchError.stale", state.balance?.isStale == true)
-                check("Refresh.fetchError.staleValue", state.balance?.result.balance == 12.34)
+                rc.apply(balanceSnap: nil, balanceErr: .fetchError("鉴权失败 (401)"), balanceModel: "ccccapi/model", dailySnap: nil, dailyErr: nil)
+                check("Refresh.ccccapi.failure.noBalance", state.balance == nil)
+                check("Refresh.ccccapi.failure.unavailable", state.balanceUnavailableFor == .ccccapi)
+                check("Refresh.ccccapi.failure.error", state.lastBalanceError == "鉴权失败 (401)")
+                let failureInputs = StatusBarPresenter.Inputs(
+                    balance: state.balance,
+                    balanceUnavailableFor: state.balanceUnavailableFor,
+                    lastBalanceError: state.lastBalanceError
+                )
+                check("Refresh.ccccapi.failure.title", StatusBarPresenter.renderTitle(failureInputs).string == "\u{2009}\u{2009}NaN")
+                let recovered = BalanceSnapshot(
+                    result: BalanceResult(provider: .ccccapi, balance: 20, currency: .usd),
+                    capturedAt: Date()
+                )
+                rc.apply(balanceSnap: recovered, balanceErr: nil, balanceModel: "ccccapi/model", dailySnap: nil, dailyErr: nil)
+                check("Refresh.ccccapi.recovered.balance", state.balance?.result.balance == 20)
+                check("Refresh.ccccapi.recovered.clearsUnavailable", state.balanceUnavailableFor == nil && state.lastBalanceError == nil)
             }
+            do {
                 let state = AppState()
                 let rc = RefreshController(balanceSource: FakeBalanceSource(), dailySource: FakeDailyUsageSource(), state: state)
                 let old = BalanceSnapshot(
@@ -734,6 +762,21 @@ public enum SelfCheck {
                 }
             }
             check("Ccccapi.strict", malformed == .invalidResponse)
+            let businessErrorHTTP = RecordingHTTP(body: #"{"code":1001,"message":"failed","data":{"balance":12.34}}"#)
+            let businessError: HTTPError? = withCreds("CCCAPI_ACCESS_TOKEN", "test-token") {
+                sync {
+                    let creds = CredentialsResolver()
+                    do {
+                        _ = try await p.fetch(creds: creds, http: businessErrorHTTP)
+                        return nil
+                    } catch let error as HTTPError {
+                        return error
+                    } catch {
+                        return nil
+                    }
+                }
+            }
+            check("Ccccapi.businessError", businessError == .invalidResponse)
 
             let blankHTTP = RecordingHTTP(body: #"{"code":0,"message":"success","data":{"balance":1}}"#)
             let blankCreds = CredentialsResolver(environment: ["CCCAPI_ACCESS_TOKEN": "   "])
@@ -749,8 +792,10 @@ public enum SelfCheck {
             }
             check("Ccccapi.blankCredential", blank == .missingCredential && blankHTTP.calls == 0)
         }
-        check("Balance.usd.status", BalanceFormatter.statusBarText(BalanceResult(provider: .ccccapi, balance: 12.3, currency: .usd)) == "$12.30")
-        check("Balance.usd.menu", BalanceFormatter.menuBarText(BalanceResult(provider: .ccccapi, balance: 12.3, currency: .usd)) == "$12.30")
+        check("LiveBalance.unauthorized401", LiveBalanceSource.humanReadable(HTTPError.unauthorized(status: 401)) == "鉴权失败 (401)")
+        check("LiveBalance.unauthorized403", LiveBalanceSource.humanReadable(HTTPError.unauthorized(status: 403)) == "鉴权失败 (403)")
+        check("Balance.usd.status", BalanceFormatter.statusBarText(BalanceResult(provider: .minimax, balance: 12.3, currency: .usd)) == "$12.30")
+        check("Balance.usd.menu", BalanceFormatter.menuBarText(BalanceResult(provider: .minimax, balance: 12.3, currency: .usd)) == "$12.30")
             check("Registry.allCount", BalanceRegistry.all().count == 5)
         }
         check("Logo.unknown.asset", LogoCatalog.assetBaseName(for: .unknown) == "logo_omp")

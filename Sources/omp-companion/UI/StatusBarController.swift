@@ -65,6 +65,7 @@ public final class StatusBarController: NSObject, NSMenuDelegate {
             MainActor.assumeIsolated { self.refreshAll() }
         }
         state.$balance.receive(on: RunLoop.main).sink { _ in bridge() }.store(in: &cancellables)
+        state.$balanceUnavailableFor.receive(on: RunLoop.main).sink { _ in bridge() }.store(in: &cancellables)
         state.$daily.receive(on: RunLoop.main).sink { _ in bridge() }.store(in: &cancellables)
         state.$lastBalanceError.receive(on: RunLoop.main).sink { _ in bridge() }.store(in: &cancellables)
         state.$lastDailyError.receive(on: RunLoop.main).sink { _ in bridge() }.store(in: &cancellables)
@@ -85,6 +86,7 @@ public final class StatusBarController: NSObject, NSMenuDelegate {
     private func currentInputs() -> StatusBarPresenter.Inputs {
         StatusBarPresenter.Inputs(
             balance: state.balance,
+            balanceUnavailableFor: state.balanceUnavailableFor,
             missingCredential: state.missingCredential,
             configMissing: state.configMissing,
             caffeinateSession: state.caffeinateSession,

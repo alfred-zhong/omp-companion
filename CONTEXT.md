@@ -13,11 +13,11 @@ NSStatusItem 在系统菜单栏中占据的一个槽位及其图标；omp-compan
 _Avoid_: 状态栏图标、状态栏 entry
 
 **Provider**:
-模型服务商或订阅网关（DeepSeek、MiniMax Token Plan、MiniMax Coding Plan、OpenCode Go、ccccapi 等）；每个 Provider 暴露一个查询余额/配额的 REST 端点与一种鉴权凭据。OpenCode Go 是订阅网关：前端多家模型厂商，返回的是额度窗口已用百分比而非货币余额；ccccapi 是账户网关，返回用户账户 USD 余额。
+模型服务商或订阅网关（DeepSeek、MiniMax Token Plan、MiniMax Coding Plan、OpenCode Go、ccccapi 等）；每个 Provider 暴露一个查询余额/配额的 REST 端点与一种鉴权凭据。OpenCode Go 是订阅网关：前端多家模型厂商，返回的是额度窗口已用百分比而非货币余额；ccccapi 是账户网关，内部返回并保存 USD 余额，展示按 `$10 = ¥1` 转为 CNY，失败显示 `NaN`。
 _Avoid_: 服务商、模型提供方、平台
 
 **Account Balance**:
-ccccapi 用户账户的 USD 余额；只读取 `data.balance`，不等同于模型 API Key 额度、token 用量或用户身份资料。
+ccccapi 用户账户的 USD 余额；只读取 `data.balance`，展示按 10:1 转为 CNY；不等同于模型 API Key 额度、token 用量或用户身份资料。
 _Avoid_: API key 余额、账户资料、额度用量
 
 **Ccccapi Access Token**:
