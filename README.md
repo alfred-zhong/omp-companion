@@ -29,7 +29,7 @@ Oh My Pi 配套工具：macOS 菜单栏常驻 app，展示 omp 当前默认 Prov
 | DeepSeek | `DEEPSEEK_API_KEY` |
 | MiniMax Token Plan | `MINIMAX_API_KEY` |
 | MiniMax Coding Plan CN | `MINIMAX_CODE_CN_API_KEY` |
-| ccccapi | `CCCAPI_ACCESS_TOKEN`（网页登录 access token，不是 `sk-...` 模型 API Key） |
+| ccccapi | `CCCCAPI_ACCESS_TOKEN`（网页登录 access token，不是 `sk-...` 模型 API Key） |
 | OpenCode Go | `OPENCODE_API_KEY`（写入 agent `.env`；`omp login opencode-go` 不自动同步，见 `docs/adr/0005-opencode-go-credential-from-dotenv.md`） |
 
 ## 编译与运行
@@ -66,7 +66,7 @@ swift run omp-companion --self-check
  
 ## ccccapi 安全说明
 
-- `CCCAPI_ACCESS_TOKEN` 是网页登录 JWT/access token，只从 `.env` 链读取；空白值视为缺失。
+- `CCCCAPI_ACCESS_TOKEN` 是网页登录 JWT/access token，只从 `.env` 链读取；空白值视为缺失。
 - 查询只读取 `data.balance`；内部保留 USD 来源语义，展示按 `$10 = ¥1` 转为人民币。请求失败、鉴权失败或响应无可信余额时显示 `NaN`，不保留旧余额。
 - 不保存或展示邮箱、用户 ID、API Key、订阅等资料。
 - 已暴露的 token 应退出登录、撤销会话或重新登录后轮换；不要复用已暴露 token。

@@ -737,7 +737,7 @@ public enum SelfCheck {
 
             let p = BalanceRegistry.ccccapi()
             let http = RecordingHTTP(body: #"{"code":0,"message":"success","data":{"balance":12.34,"email":"redacted"}}"#)
-            let result: BalanceResult? = withCreds("CCCAPI_ACCESS_TOKEN", "test-token") {
+            let result: BalanceResult? = withCreds("CCCCAPI_ACCESS_TOKEN", "test-token") {
                 sync {
                     let creds = CredentialsResolver()
                     return try? await p.fetch(creds: creds, http: http)
@@ -748,7 +748,7 @@ public enum SelfCheck {
             check("Ccccapi.request.auth", http.requestedHeaders["Authorization"] == "Bearer test-token")
 
             let malformedHTTP = RecordingHTTP(body: #"{"code":0,"message":"success","data":{}}"#)
-            let malformed: HTTPError? = withCreds("CCCAPI_ACCESS_TOKEN", "test-token") {
+            let malformed: HTTPError? = withCreds("CCCCAPI_ACCESS_TOKEN", "test-token") {
                 sync {
                     let creds = CredentialsResolver()
                     do {
@@ -763,7 +763,7 @@ public enum SelfCheck {
             }
             check("Ccccapi.strict", malformed == .invalidResponse)
             let businessErrorHTTP = RecordingHTTP(body: #"{"code":1001,"message":"failed","data":{"balance":12.34}}"#)
-            let businessError: HTTPError? = withCreds("CCCAPI_ACCESS_TOKEN", "test-token") {
+            let businessError: HTTPError? = withCreds("CCCCAPI_ACCESS_TOKEN", "test-token") {
                 sync {
                     let creds = CredentialsResolver()
                     do {
@@ -779,7 +779,7 @@ public enum SelfCheck {
             check("Ccccapi.businessError", businessError == .invalidResponse)
 
             let blankHTTP = RecordingHTTP(body: #"{"code":0,"message":"success","data":{"balance":1}}"#)
-            let blankCreds = CredentialsResolver(environment: ["CCCAPI_ACCESS_TOKEN": "   "])
+            let blankCreds = CredentialsResolver(environment: ["CCCCAPI_ACCESS_TOKEN": "   "])
             let blank: HTTPError? = sync {
                 do {
                     _ = try await p.fetch(creds: blankCreds, http: blankHTTP)

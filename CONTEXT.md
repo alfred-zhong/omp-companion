@@ -21,7 +21,7 @@ ccccapi 用户账户的 USD 余额；只读取 `data.balance`，展示按 10:1 �
 _Avoid_: API key 余额、账户资料、额度用量
 
 **Ccccapi Access Token**:
-ccccapi 网页会话 access token；从 `.env` 链的 `CCCAPI_ACCESS_TOKEN` 读取，空白值视为缺失，不在本地保存完整响应或打印 token。
+ccccapi 网页会话 access token；从 `.env` 链的 `CCCCAPI_ACCESS_TOKEN` 读取，空白值视为缺失，不在本地保存完整响应或打印 token。
 _Avoid_: API key、模型密钥
 
 **Quota Window**:

@@ -6,7 +6,7 @@
 
 ### 新增特性
 
-- 新增 ccccapi Provider：`ccccapi/*` 使用 `.env` 中的 `CCCAPI_ACCESS_TOKEN` 查询账户 USD 余额；只解析标准用户资料响应的 `data.balance`，内部保留 USD，展示按 `$10 = ¥1` 转为人民币，不读取或展示身份、API Key、订阅等字段（决策见 `docs/adr/0006-ccccapi-account-balance.md`）。
+- 新增 ccccapi Provider：`ccccapi/*` 使用 `.env` 中的 `CCCCAPI_ACCESS_TOKEN` 查询账户 USD 余额；只解析标准用户资料响应的 `data.balance`，内部保留 USD，展示按 `$10 = ¥1` 转为人民币，不读取或展示身份、API Key、订阅等字段（决策见 `docs/adr/0006-ccccapi-account-balance.md`）。
 - 菜单栏新增构建时本地打包的 ccccapi Sub2API SVG logo（`provider_ccccapi.svg`）。
 
 ### 变更

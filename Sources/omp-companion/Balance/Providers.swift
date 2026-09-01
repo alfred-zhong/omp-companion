@@ -228,11 +228,11 @@ public struct CcccapiProvider: BalanceProvider {
     public init() {}
 
     public func hasCredential(creds: CredentialsResolver) -> Bool {
-        creds.resolve("CCCAPI_ACCESS_TOKEN") != nil
+        creds.resolve("CCCCAPI_ACCESS_TOKEN") != nil
     }
 
     public func fetch(creds: CredentialsResolver, http: HTTPClient) async throws -> BalanceResult {
-        guard let token = creds.resolve("CCCAPI_ACCESS_TOKEN") else {
+        guard let token = creds.resolve("CCCCAPI_ACCESS_TOKEN") else {
             throw HTTPError.missingCredential
         }
         let (data, _) = try await http.get(
