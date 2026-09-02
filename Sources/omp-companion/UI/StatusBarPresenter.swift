@@ -150,7 +150,7 @@ public enum StatusBarPresenter {
 
     // MARK: - renderTitle
 
-    /// 状态栏标题:missingCredential > configMissing > unmatchedProvider > ccccapi NaN > balance > "···"。
+    /// 状态栏标题:missingCredential > configMissing > unmatchedProvider > 余额不可用 NaN > balance > "···"。
     /// 守护激活时在余额右侧追加 " ☕"(咖啡色),把视觉焦点留给主信息;
     /// balance text 周围按需补空格,避免胶囊裁切。
     /// 所有分支统一在头部补两个 Thin Space(\u{2009} ≈ 0.5pt),拉开 logo 与文字的间距;
@@ -165,17 +165,16 @@ public enum StatusBarPresenter {
             body = NSAttributedString(string: "\(logoTextGap)?omp")
         } else if let provider = inputs.unmatchedProvider {
             body = composeUnmatched(provider: provider, caffeinateActive: inputs.caffeinateSession != nil)
-        } else if inputs.balanceUnavailableFor == .ccccapi {
+        } else if inputs.balanceUnavailableFor != nil {
             body = composeBalanced(
                 balanceText: inputs.caffeinateSession == nil ? "NaN" : " NaN ",
-                isStale: false,
                 caffeinateActive: inputs.caffeinateSession != nil
             )
         } else if let balance = inputs.balance {
             let text = BalanceFormatter.statusBarText(balance.result)
             let active = inputs.caffeinateSession != nil
             let padded = active ? " \(text) " : text
-            body = composeBalanced(balanceText: padded, isStale: balance.isStale, caffeinateActive: active)
+            body = composeBalanced(balanceText: padded, caffeinateActive: active)
         } else {
             body = NSAttributedString(string: "\(logoTextGap)···")
         }
@@ -184,13 +183,11 @@ public enum StatusBarPresenter {
 
     private static func composeBalanced(
         balanceText: String,
-        isStale: Bool,
         caffeinateActive: Bool
     ) -> NSAttributedString {
-        let text = balanceText + (isStale ? "·off" : "")
         let result = NSMutableAttributedString()
         result.append(NSAttributedString(string: logoTextGap))
-        result.append(NSAttributedString(string: text))
+        result.append(NSAttributedString(string: balanceText))
         appendCaffeinateSuffix(to: result, active: caffeinateActive)
         return result
     }
@@ -275,10 +272,10 @@ public enum StatusBarPresenter {
 
     private static func normalMenu(_ inputs: Inputs, now: Date) -> [MenuItemSpec] {
         var items: [MenuItemSpec] = []
-        if inputs.balanceUnavailableFor == .ccccapi {
-            let provider = ProviderID.ccccapi.displayName
+        if let provider = inputs.balanceUnavailableFor {
+            let providerName = provider.displayName
             let modelSuffix = displayModel(inputs.currentModel).map { " (\($0))" } ?? ""
-            items.append(MenuItemSpec(title: "\(provider)\(modelSuffix)", enabled: false))
+            items.append(MenuItemSpec(title: "\(providerName)\(modelSuffix)", enabled: false))
             items.append(MenuItemSpec(title: "余额: NaN", enabled: false))
             if let err = inputs.lastBalanceError {
                 items.append(MenuItemSpec(title: "错误: \(err)", enabled: false))

@@ -255,14 +255,14 @@ public enum SelfCheck {
                 isStale: true
             )
             let in4 = StatusBarPresenter.Inputs(balance: stale)
-            check("Title.stale", StatusBarPresenter.renderTitle(in4).string == "\u{2009}\u{2009}¥12.50·off")
+            check("Title.stale", StatusBarPresenter.renderTitle(in4).string == "\u{2009}\u{2009}¥12.50")
             let staleCcccapi = BalanceSnapshot(
                 result: BalanceResult(provider: .ccccapi, balance: 12.5, currency: .usd),
                 capturedAt: Date(),
                 isStale: true
             )
             let ccccapiTitle = StatusBarPresenter.renderTitle(.init(balance: staleCcccapi)).string
-            check("Title.ccccapiStale", ccccapiTitle == "\u{2009}\u{2009}¥1.25·off")
+            check("Title.ccccapiStale", ccccapiTitle == "\u{2009}\u{2009}¥1.25")
             check("Title.empty", StatusBarPresenter.renderTitle(.init()).string == "\u{2009}\u{2009}···")
             let unmatched = StatusBarPresenter.Inputs(unmatchedProvider: "OpenCode-Zen")
             check("Title.unmatched", StatusBarPresenter.renderTitle(unmatched).string == "\u{2009}\u{2009}OpenCode-Zen")
@@ -488,6 +488,7 @@ public enum SelfCheck {
                 check("Refresh.fetchError", state.lastBalanceError == "请求超时 (10 秒)")
                 check("Refresh.fetchError.noCred", state.missingCredential == nil)
                 check("Refresh.fetchError.noOldBalance", state.balance == nil)
+                check("Refresh.fetchError.unavailableNil", state.balanceUnavailableFor == nil)
             }
             do {
                 let state = AppState()
@@ -514,6 +515,25 @@ public enum SelfCheck {
                 rc.apply(balanceSnap: recovered, balanceErr: nil, balanceModel: "ccccapi/model", dailySnap: nil, dailyErr: nil)
                 check("Refresh.ccccapi.recovered.balance", state.balance?.result.balance == 20)
                 check("Refresh.ccccapi.recovered.clearsUnavailable", state.balanceUnavailableFor == nil && state.lastBalanceError == nil)
+            }
+            do {
+                let state = AppState()
+                let rc = RefreshController(balanceSource: FakeBalanceSource(), dailySource: FakeDailyUsageSource(), state: state)
+                rc.apply(
+                    balanceSnap: nil,
+                    balanceErr: .fetchError("请求超时 (10 秒)"),
+                    balanceModel: "deepseek/deepseek-chat",
+                    dailySnap: nil,
+                    dailyErr: nil
+                )
+                check("Refresh.deepseek.failure.unavailable", state.balanceUnavailableFor == .deepseek)
+                check("Refresh.deepseek.failure.noBalance", state.balance == nil)
+                let failureInputs = StatusBarPresenter.Inputs(
+                    balance: state.balance,
+                    balanceUnavailableFor: state.balanceUnavailableFor,
+                    lastBalanceError: state.lastBalanceError
+                )
+                check("Refresh.deepseek.failure.title", StatusBarPresenter.renderTitle(failureInputs).string == "\u{2009}\u{2009}NaN")
             }
             do {
                 let state = AppState()

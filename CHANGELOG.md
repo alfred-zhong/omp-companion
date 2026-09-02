@@ -12,7 +12,8 @@
 ### 变更
 
 - 凭据解析的 agent `.env` 跟随 `PI_CODING_AGENT_DIR`；空白凭据统一视为缺失，不发送空 Bearer token。
-- Provider 远端请求失败时通常保留上一份余额快照并标记 stale；ccccapi 请求失败或鉴权失败时清除旧余额，状态栏与菜单显示 `NaN` 并保留具体错误；缺配置、未匹配 Provider、凭据缺失仍清空余额。
+- Provider 远端请求失败时不再保留上一份余额快照：状态栏与菜单对所有 provider 统一显示 `NaN` 并保留具体错误（与 ccccapi 行为一致）；缺配置、未匹配 Provider、凭据缺失仍清空余额。
+- 移除菜单栏余额旁 stale 的 `·off` 后缀：余额不可用时状态栏直接显示 `NaN`，不再回退到旧快照。
 
 ### Bug 修复
 - 未匹配但格式正确的 Provider 不再触发余额请求；状态栏与菜单保留 Provider / Model 展示，并使用 omp 官网图标作为默认图标。

@@ -4,7 +4,7 @@ import Combine
 /// 状态机:菜单栏所需的两路快照 + 阻止系统休眠会话。
 public final class AppState: ObservableObject, @unchecked Sendable {
     @Published public private(set) var balance: BalanceSnapshot?
-    /// ccccapi 已执行余额请求但未取得可信余额时的显式失败状态。
+    /// 已执行余额请求但未取得可信余额时（任何 provider）的显式失败状态。
     @Published public private(set) var balanceUnavailableFor: ProviderID?
     @Published public private(set) var daily: DailyUsageSnapshot?
     @Published public private(set) var lastBalanceError: String?
@@ -126,9 +126,9 @@ public final class RefreshController: @unchecked Sendable {
             self.state.setUnmatchedProvider(nil)
             self.state.setBalanceError(reason)
             let failedProvider = model.map { BalanceRegistry.providerID(fromDefaultModel: $0) }
-            if failedProvider == .ccccapi {
-                self.state.setBalanceUnavailableFor(.ccccapi)
-                self.state.setCurrentProvider(.ccccapi)
+            if let failedProvider, failedProvider != .unknown {
+                self.state.setBalanceUnavailableFor(failedProvider)
+                self.state.setCurrentProvider(failedProvider)
             } else {
                 self.state.setBalanceUnavailableFor(nil)
             }
@@ -141,7 +141,7 @@ public final class RefreshController: @unchecked Sendable {
 
         let nextBalance: BalanceSnapshot?
         if case .fetchError = err, snap == nil {
-            if self.state.balanceUnavailableFor == .ccccapi {
+            if self.state.balanceUnavailableFor != nil {
                 nextBalance = nil
             } else if let old = self.state.balance {
                 nextBalance = BalanceSnapshot(
