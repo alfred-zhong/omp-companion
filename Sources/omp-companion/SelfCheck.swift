@@ -23,11 +23,16 @@ public enum SelfCheck {
             return box.get()!
         }
 
-        // 在 self-check 进程里临时塞一对凭据,绕过 CredentialsResolver 的 env / 文件查找。
-        func withCreds<T>(_ key: String, _ value: String, _ body: () -> T) -> T {
-            setenv(key, value, 1)
-            defer { setenv(key, "", 1) }
-            return body()
+        // 测试用内存凭据源：绕过真实 UserDefaults / 偏好面板（ADR-0008 后 provider 不再读 .env）。
+        struct MapCredentialSource: CredentialSource {
+            let values: [String: String]
+            init(values: [String: String] = [:]) { self.values = values }
+            func resolve(_ name: String) -> String? {
+                guard let v = values[name]?.trimmingCharacters(in: .whitespacesAndNewlines), !v.isEmpty else {
+                    return nil
+                }
+                return v
+            }
         }
         // TokenStats
         do {
@@ -108,12 +113,6 @@ public enum SelfCheck {
         check("Provider.ccccapi", BalanceRegistry.providerID(fromDefaultModel: "ccccapi/claude-sonnet") == .ccccapi)
         check("Provider.opencodeZenUnknown", BalanceRegistry.providerID(fromDefaultModel: "opencode-zen/foo") == .unknown)
         check("Provider.unknown", BalanceRegistry.providerID(fromDefaultModel: "zenmux/foo") == .unknown)
-        let relocatedCreds = CredentialsResolver(
-            homeDir: "/tmp/omp-home",
-            cwd: "/tmp/omp-cwd",
-            environment: ["PI_CODING_AGENT_DIR": "/tmp/omp-relocated-agent"]
-        )
-        check("Credentials.agentDirOverride", relocatedCreds.candidateEnvFiles()[1] == "/tmp/omp-relocated-agent/.env")
 
         // LiveBalanceSource 未匹配 Provider 保底：不查询余额，也不触发 HTTP。
         do {
@@ -140,7 +139,7 @@ public enum SelfCheck {
                 let http = RecordingHTTP()
                 let source = LiveBalanceSource(
                     config: ConfigSource(homeDir: root.path, cwd: root.path, env: [:]),
-                    creds: CredentialsResolver(),
+                    creds: MapCredentialSource(),
                     http: http
                 )
                 let capture = sync { await source.capture(now: Date()) }
@@ -620,11 +619,9 @@ public enum SelfCheck {
             do {
                 let p = BalanceRegistry.tokenPlan()
                 let body = #"{"model_remains":[{"model_name":"general","current_interval_remaining_percent":42.0,"remains_time":3600000,"start_time":1787209200000,"end_time":1787227200000,"current_interval_status":1}]}"#
-                let result: BalanceResult? = withCreds("MINIMAX_API_KEY", "test") {
-                    sync { () -> BalanceResult? in
-                        let creds = CredentialsResolver()
-                        return try? await p.fetch(creds: creds, http: FakeHTTP(body: body))
-                    }
+                let creds = MapCredentialSource(values: ["MINIMAX_API_KEY": "test"])
+                let result: BalanceResult? = sync { () -> BalanceResult? in
+                    try? await p.fetch(creds: creds, http: FakeHTTP(body: body))
                 }
                 check("MiniMax.parsed.fetch", result != nil)
                 check("MiniMax.parsed.remaining", result?.balance == 42.0)
@@ -639,11 +636,9 @@ public enum SelfCheck {
             do {
                 let p = BalanceRegistry.tokenPlan()
                 let body = #"{"model_remains":[{"model_name":"other","current_interval_remaining_percent":99}]}"#
-                let result: BalanceResult? = withCreds("MINIMAX_API_KEY", "test") {
-                    sync { () -> BalanceResult? in
-                        let creds = CredentialsResolver()
-                        return try? await p.fetch(creds: creds, http: FakeHTTP(body: body))
-                    }
+                let creds = MapCredentialSource(values: ["MINIMAX_API_KEY": "test"])
+                let result: BalanceResult? = sync { () -> BalanceResult? in
+                    try? await p.fetch(creds: creds, http: FakeHTTP(body: body))
                 }
                 check("MiniMax.noGeneral.zero", result?.balance == 0)
                 check("MiniMax.noGeneral.used", result?.usedPercent == 100)
@@ -652,11 +647,9 @@ public enum SelfCheck {
             do {
                 let p = BalanceRegistry.codingPlanCN()
                 let body = #"{"model_remains":[{"model_name":"general","current_interval_remaining_percent":50.0,"remains_time":0}]}"#
-                let result: BalanceResult? = withCreds("MINIMAX_CODE_CN_API_KEY", "test") {
-                    sync { () -> BalanceResult? in
-                        let creds = CredentialsResolver()
-                        return try? await p.fetch(creds: creds, http: FakeHTTP(body: body))
-                    }
+                let creds = MapCredentialSource(values: ["MINIMAX_CODE_CN_API_KEY": "test"])
+                let result: BalanceResult? = sync { () -> BalanceResult? in
+                    try? await p.fetch(creds: creds, http: FakeHTTP(body: body))
                 }
             check("MiniMax.zeroReset", result?.resetRemaining == 0)
             check("MiniMax.codingCN.id", result?.provider == .minimaxCodeCN)
@@ -665,11 +658,9 @@ public enum SelfCheck {
         do {
             let p = BalanceRegistry.opencodeGo()
             let body = #"{"usage":{"rolling":{"percent":67,"status":"ok","resetsAt":"2027-08-19T12:00:00Z"},"weekly":{"percent":12,"status":"ok","resetsAt":"2026-08-25T12:00:00Z"},"monthly":{"percent":3,"status":"rate-limited","resetsAt":"2026-09-03T12:00:00Z"}}}"#
-            let result: BalanceResult? = withCreds("OPENCODE_API_KEY", "test") {
-                sync { () -> BalanceResult? in
-                    let creds = CredentialsResolver()
-                    return try? await p.fetch(creds: creds, http: FakeHTTP(body: body))
-                }
+            let creds = MapCredentialSource(values: ["OPENCODE_API_KEY": "test"])
+            let result: BalanceResult? = sync { () -> BalanceResult? in
+                try? await p.fetch(creds: creds, http: FakeHTTP(body: body))
             }
             let expRolling = ISO8601DateFormatter().date(from: "2027-08-19T12:00:00Z")!
             check("OpenCode.id", result?.provider == .opencodeGo)
@@ -688,11 +679,9 @@ public enum SelfCheck {
             // live 响应形状：resetsAt 带小数秒（ISO8601DateFormatter 默认格式解析不了，走 fallback）
             let p = BalanceRegistry.opencodeGo()
             let body = #"{"usage":{"rolling":{"percent":28,"status":"ok","resetsAt":"2026-08-19T13:02:42.270Z"},"weekly":{"percent":11,"status":"ok","resetsAt":"2026-08-24T00:00:00.270Z"},"monthly":{"percent":5,"status":"ok","resetsAt":"2026-09-19T07:59:11.270Z"}}}"#
-            let result: BalanceResult? = withCreds("OPENCODE_API_KEY", "test") {
-                sync { () -> BalanceResult? in
-                    let creds = CredentialsResolver()
-                    return try? await p.fetch(creds: creds, http: FakeHTTP(body: body))
-                }
+            let creds = MapCredentialSource(values: ["OPENCODE_API_KEY": "test"])
+            let result: BalanceResult? = sync { () -> BalanceResult? in
+                try? await p.fetch(creds: creds, http: FakeHTTP(body: body))
             }
             check("OpenCode.liveShape.count", result?.quotaWindows?.count == 3)
             check("OpenCode.liveShape.rolling", result?.quotaWindows?[0].usedPercent == 28)
@@ -703,17 +692,15 @@ public enum SelfCheck {
             // 缺 monthly 窗口 → all-or-nothing → invalidResponse
             let p = BalanceRegistry.opencodeGo()
             let body = #"{"usage":{"rolling":{"percent":10,"status":"ok","resetsAt":"2026-08-19T12:00:00Z"},"weekly":{"percent":10,"status":"ok","resetsAt":"2026-08-25T12:00:00Z"}}}"#
-            let thrown = withCreds("OPENCODE_API_KEY", "test") {
-                sync {
-                    let creds = CredentialsResolver()
-                    do {
-                        _ = try await p.fetch(creds: creds, http: FakeHTTP(body: body))
-                        return nil as HTTPError?
-                    } catch let e as HTTPError {
-                        return e
-                    } catch {
-                        return nil as HTTPError?
-                    }
+            let creds = MapCredentialSource(values: ["OPENCODE_API_KEY": "test"])
+            let thrown = sync {
+                do {
+                    _ = try await p.fetch(creds: creds, http: FakeHTTP(body: body))
+                    return nil as HTTPError?
+                } catch let e as HTTPError {
+                    return e
+                } catch {
+                    return nil as HTTPError?
                 }
             }
             check("OpenCode.missingWindow.throws", thrown == .invalidResponse)
@@ -722,17 +709,15 @@ public enum SelfCheck {
             // percent 越界 → malformed → invalidResponse
             let p = BalanceRegistry.opencodeGo()
             let body = #"{"usage":{"rolling":{"percent":150,"status":"ok","resetsAt":"2026-08-19T12:00:00Z"},"weekly":{"percent":10,"status":"ok","resetsAt":"2026-08-25T12:00:00Z"},"monthly":{"percent":3,"status":"ok","resetsAt":"2026-09-03T12:00:00Z"}}}"#
-            let thrown = withCreds("OPENCODE_API_KEY", "test") {
-                sync {
-                    let creds = CredentialsResolver()
-                    do {
-                        _ = try await p.fetch(creds: creds, http: FakeHTTP(body: body))
-                        return nil as HTTPError?
-                    } catch let e as HTTPError {
-                        return e
-                    } catch {
-                        return nil as HTTPError?
-                    }
+            let creds = MapCredentialSource(values: ["OPENCODE_API_KEY": "test"])
+            let thrown = sync {
+                do {
+                    _ = try await p.fetch(creds: creds, http: FakeHTTP(body: body))
+                    return nil as HTTPError?
+                } catch let e as HTTPError {
+                    return e
+                } catch {
+                    return nil as HTTPError?
                 }
             }
             check("OpenCode.badPercent.throws", thrown == .invalidResponse)
@@ -755,54 +740,70 @@ public enum SelfCheck {
                 }
             }
 
-            let p = BalanceRegistry.ccccapi()
-            let http = RecordingHTTP(body: #"{"code":0,"message":"success","data":{"balance":12.34,"email":"redacted"}}"#)
-            let result: BalanceResult? = withCreds("CCCCAPI_ACCESS_TOKEN", "test-token") {
-                sync {
-                    let creds = CredentialsResolver()
-                    return try? await p.fetch(creds: creds, http: http)
+            struct FakeCreds: CcccapiCredentialSource {
+                let email: String
+                let password: String
+                var ccccapiEmail: String { email }
+                var ccccapiPassword: String { password }
+            }
+
+            final class LoginHTTP: HTTPClient, @unchecked Sendable {
+                var postCalls = 0
+                func get(url: URL, headers: [String: String], timeoutSeconds: Double) async throws -> (Data, HTTPURLResponse) {
+                    throw HTTPError.invalidResponse
                 }
+                func post(url: URL, jsonBody: Data, headers: [String: String], timeoutSeconds: Double) async throws -> (Data, HTTPURLResponse) {
+                    postCalls += 1
+                    let body = #"{"code":0,"data":{"access_token":"at_login","refresh_token":"rt_login","expires_in":86400,"token_type":"Bearer"}}"#
+                    let resp = HTTPURLResponse(url: url, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: nil)!
+                    return (body.data(using: .utf8)!, resp)
+                }
+            }
+
+            let loginHTTP = LoginHTTP()
+            let manager = CcccapiSessionManager(credentials: FakeCreds(email: "a@b.com", password: "pw"), http: loginHTTP)
+            let p = CcccapiProvider(session: manager)
+
+            let http = RecordingHTTP(body: #"{"code":0,"message":"success","data":{"balance":12.34,"email":"redacted"}}"#)
+            let result: BalanceResult? = sync {
+                try? await p.fetch(creds: MapCredentialSource(), http: http)
             }
             check("Ccccapi.parsed", result?.provider == .ccccapi && result?.balance == 12.34 && result?.currency == .usd)
             check("Ccccapi.request.url", http.requestedURL?.absoluteString == "https://ccccapi.cc/api/v1/user/profile")
-            check("Ccccapi.request.auth", http.requestedHeaders["Authorization"] == "Bearer test-token")
+            check("Ccccapi.request.auth", http.requestedHeaders["Authorization"] == "Bearer at_login")
+            check("Ccccapi.login.called", loginHTTP.postCalls == 1)
 
             let malformedHTTP = RecordingHTTP(body: #"{"code":0,"message":"success","data":{}}"#)
-            let malformed: HTTPError? = withCreds("CCCCAPI_ACCESS_TOKEN", "test-token") {
-                sync {
-                    let creds = CredentialsResolver()
-                    do {
-                        _ = try await p.fetch(creds: creds, http: malformedHTTP)
-                        return nil
-                    } catch let error as HTTPError {
-                        return error
-                    } catch {
-                        return nil
-                    }
+            let malformed: HTTPError? = sync {
+                do {
+                    _ = try await p.fetch(creds: MapCredentialSource(), http: malformedHTTP)
+                    return nil
+                } catch let error as HTTPError {
+                    return error
+                } catch {
+                    return nil
                 }
             }
             check("Ccccapi.strict", malformed == .invalidResponse)
+
             let businessErrorHTTP = RecordingHTTP(body: #"{"code":1001,"message":"failed","data":{"balance":12.34}}"#)
-            let businessError: HTTPError? = withCreds("CCCCAPI_ACCESS_TOKEN", "test-token") {
-                sync {
-                    let creds = CredentialsResolver()
-                    do {
-                        _ = try await p.fetch(creds: creds, http: businessErrorHTTP)
-                        return nil
-                    } catch let error as HTTPError {
-                        return error
-                    } catch {
-                        return nil
-                    }
+            let businessError: HTTPError? = sync {
+                do {
+                    _ = try await p.fetch(creds: MapCredentialSource(), http: businessErrorHTTP)
+                    return nil
+                } catch let error as HTTPError {
+                    return error
+                } catch {
+                    return nil
                 }
             }
             check("Ccccapi.businessError", businessError == .invalidResponse)
 
+            let blankP = CcccapiProvider()
             let blankHTTP = RecordingHTTP(body: #"{"code":0,"message":"success","data":{"balance":1}}"#)
-            let blankCreds = CredentialsResolver(environment: ["CCCCAPI_ACCESS_TOKEN": "   "])
             let blank: HTTPError? = sync {
                 do {
-                    _ = try await p.fetch(creds: blankCreds, http: blankHTTP)
+                    _ = try await blankP.fetch(creds: MapCredentialSource(), http: blankHTTP)
                     return nil
                 } catch let error as HTTPError {
                     return error
@@ -812,6 +813,123 @@ public enum SelfCheck {
             }
             check("Ccccapi.blankCredential", blank == .missingCredential && blankHTTP.calls == 0)
         }
+
+        // CcccapiSessionManager:登录 / 刷新 / 轮转 / 冷却 / 失败映射
+        func syncResult<T: Sendable>(_ op: @escaping @Sendable () async throws -> T) -> Result<T, Error> {
+            let sema = DispatchSemaphore(value: 0)
+            let box = UncheckedSendableBox<Result<T, Error>>(nil)
+            Task.detached {
+                let r: Result<T, Error>
+                do { r = .success(try await op()) }
+                catch { r = .failure(error) }
+                box.set(r)
+                sema.signal()
+            }
+            sema.wait()
+            return box.get()!
+        }
+
+        do {
+            struct FakeCreds: CcccapiCredentialSource {
+                let email: String
+                let password: String
+                var ccccapiEmail: String { email }
+                var ccccapiPassword: String { password }
+            }
+            final class FakeAuthHTTP: HTTPClient, @unchecked Sendable {
+                var loginCalls = 0
+                var refreshCalls = 0
+                var loginStatus = 200
+                var loginBody = #"{"code":0,"data":{"access_token":"at1","refresh_token":"rt1","expires_in":86400,"token_type":"Bearer"}}"#
+                var refreshStatus = 200
+                var refreshBody = #"{"code":0,"data":{"access_token":"at2","refresh_token":"rt2","expires_in":86400,"token_type":"Bearer"}}"#
+                var shouldLoginFail = false
+
+                func get(url: URL, headers: [String: String], timeoutSeconds: Double) async throws -> (Data, HTTPURLResponse) {
+                    throw HTTPError.invalidResponse
+                }
+                func post(url: URL, jsonBody: Data, headers: [String: String], timeoutSeconds: Double) async throws -> (Data, HTTPURLResponse) {
+                    if url.path.hasSuffix("/auth/login") {
+                        loginCalls += 1
+                        if shouldLoginFail {
+                            let d = #"{"code":401,"message":"invalid email or password","reason":"INVALID_CREDENTIALS"}"#.data(using: .utf8)!
+                            return (d, HTTPURLResponse(url: url, statusCode: 401, httpVersion: "HTTP/1.1", headerFields: nil)!)
+                        }
+                        return (loginBody.data(using: .utf8)!, HTTPURLResponse(url: url, statusCode: loginStatus, httpVersion: "HTTP/1.1", headerFields: nil)!)
+                    }
+                    if url.path.hasSuffix("/auth/refresh") {
+                        refreshCalls += 1
+                        return (refreshBody.data(using: .utf8)!, HTTPURLResponse(url: url, statusCode: refreshStatus, httpVersion: "HTTP/1.1", headerFields: nil)!)
+                    }
+                    throw HTTPError.invalidResponse
+                }
+            }
+            final class FakeClock: @unchecked Sendable {
+                var now = Date(timeIntervalSince1970: 1_000_000)
+            }
+            let creds = FakeCreds(email: "a@b.com", password: "pw")
+
+            // 1) 登录成功
+            let c1 = FakeClock()
+            let a1 = FakeAuthHTTP()
+            let m1 = CcccapiSessionManager(credentials: creds, http: a1, clock: { c1.now })
+            let t1 = syncResult { try await m1.validAccessToken() }
+            check("CcccAuth.login.success", (try? t1.get()) == "at1")
+            check("CcccAuth.login.calls", a1.loginCalls == 1 && a1.refreshCalls == 0)
+
+            // 2) 凭据无效 + 冷却（冷却期内不再打 /auth/login）
+            let a2 = FakeAuthHTTP(); a2.shouldLoginFail = true
+            let m2 = CcccapiSessionManager(credentials: creds, http: a2, clock: { c1.now })
+            let r1 = syncResult { try await m2.validAccessToken() }
+            if case .failure(let e) = r1 { check("CcccAuth.invalid.error", (e as? CcccapiAuthError) == .credentialInvalid) } else { check("CcccAuth.invalid.error", false) }
+            let r2 = syncResult { try await m2.validAccessToken() }
+            check("CcccAuth.cooldown.noPost", a2.loginCalls == 1)
+            if case .failure(let e) = r2 { check("CcccAuth.cooldown.error", (e as? CcccapiAuthError) == .credentialInvalid) } else { check("CcccAuth.cooldown.error", false) }
+
+            // 3) 登录后临近过期 → 触发刷新并轮转
+            let c3 = FakeClock()
+            let a3 = FakeAuthHTTP()
+            let m3 = CcccapiSessionManager(credentials: creds, http: a3, clock: { c3.now })
+            let s1 = syncResult { try await m3.validAccessToken() }
+            check("CcccAuth.rotate.initial", (try? s1.get()) == "at1")
+            c3.now = c3.now.addingTimeInterval(86400 - 100)
+            let s2 = syncResult { try await m3.validAccessToken() }
+            check("CcccAuth.rotate.refreshed", (try? s2.get()) == "at2")
+            check("CcccAuth.rotate.calls", a3.loginCalls == 1 && a3.refreshCalls == 1)
+
+            // 4) 刷新被拒（REFRESH_TOKEN_INVALID）→ 密码兜底重登
+            let c4 = FakeClock()
+            let a4 = FakeAuthHTTP()
+            a4.refreshStatus = 401
+            a4.refreshBody = #"{"code":401,"message":"invalid refresh token","reason":"REFRESH_TOKEN_INVALID"}"#
+            let m4 = CcccapiSessionManager(credentials: creds, http: a4, clock: { c4.now })
+            let f1 = syncResult { try await m4.validAccessToken() }
+            check("CcccAuth.refreshRejected.initial", (try? f1.get()) == "at1")
+            c4.now = c4.now.addingTimeInterval(86400 - 100)
+            let f2 = syncResult { try await m4.validAccessToken() }
+            check("CcccAuth.refreshRejected.fallback", (try? f2.get()) == "at1")
+            check("CcccAuth.refreshRejected.calls", a4.loginCalls == 2 && a4.refreshCalls == 1)
+
+            // 5) 2FA → requires2FA
+            let a5 = FakeAuthHTTP()
+            a5.loginBody = #"{"code":0,"data":{"requires_2fa":true,"temp_token":"tmp","user_email_masked":"a***"}}"#
+            let m5 = CcccapiSessionManager(credentials: creds, http: a5, clock: { c1.now })
+            let r5 = syncResult { try await m5.validAccessToken() }
+            if case .failure(let e) = r5 { check("CcccAuth.2fa.error", (e as? CcccapiAuthError) == .requires2FA) } else { check("CcccAuth.2fa.error", false) }
+
+            // 6) 未配置 → notConfigured，不发请求
+            let a6 = FakeAuthHTTP()
+            let m6 = CcccapiSessionManager(credentials: FakeCreds(email: "", password: ""), http: a6, clock: { c1.now })
+            let r6 = syncResult { try await m6.validAccessToken() }
+            if case .failure(let e) = r6 { check("CcccAuth.notConfigured.error", (e as? CcccapiAuthError) == .notConfigured) } else { check("CcccAuth.notConfigured.error", false) }
+            check("CcccAuth.notConfigured.noPost", a6.loginCalls == 0)
+        }
+        check("LiveBalance.ccccc.notConfigured", LiveBalanceSource.humanReadable(CcccapiAuthError.notConfigured) == "ccccapi 未配置邮箱/密码")
+        check("LiveBalance.ccccc.credentialInvalid", LiveBalanceSource.humanReadable(CcccapiAuthError.credentialInvalid) == "账号登录失败: 凭据无效")
+        check("LiveBalance.ccccc.requires2FA", LiveBalanceSource.humanReadable(CcccapiAuthError.requires2FA) == "账户开启了 2FA，暂不支持自动登录")
+        check("LiveBalance.ccccc.refreshRejected", LiveBalanceSource.humanReadable(CcccapiAuthError.refreshRejected) == "刷新被拒绝，请重新登录")
+        check("LiveBalance.ccccc.binding", LiveBalanceSource.humanReadable(CcccapiAuthError.sessionBindingMismatch) == "会话绑定不匹配，请重新登录")
+
         check("LiveBalance.unauthorized401", LiveBalanceSource.humanReadable(HTTPError.unauthorized(status: 401)) == "鉴权失败 (401)")
         check("LiveBalance.unauthorized403", LiveBalanceSource.humanReadable(HTTPError.unauthorized(status: 403)) == "鉴权失败 (403)")
         check("Balance.usd.status", BalanceFormatter.statusBarText(BalanceResult(provider: .minimax, balance: 12.3, currency: .usd)) == "$12.30")

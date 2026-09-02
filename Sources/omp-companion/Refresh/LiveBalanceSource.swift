@@ -1,20 +1,24 @@
 import Foundation
 
-/// 生产 BalanceSource:持有 ConfigSource + CredentialsResolver + HTTPClient。
+/// 生产 BalanceSource:持有 ConfigSource + CredentialSource + HTTPClient。
 /// Provider 路由走 BalanceRegistry 静态方法(与 SelfCheck 对齐)。
 public struct LiveBalanceSource: BalanceSource {
     public let config: ConfigSource
-    public let creds: CredentialsResolver
+    public let creds: any CredentialSource
     public let http: HTTPClient
+    /// ccccapi 会话管理器（ADR-0007）；nil 时 ccccapi 视为无凭据。
+    public let ccccapiSession: CcccapiSessionManager?
 
     public init(
         config: ConfigSource,
-        creds: CredentialsResolver,
-        http: HTTPClient = URLSessionHTTPClient()
+        creds: any CredentialSource,
+        http: HTTPClient = URLSessionHTTPClient(),
+        ccccapiSession: CcccapiSessionManager? = nil
     ) {
         self.config = config
         self.creds = creds
         self.http = http
+        self.ccccapiSession = ccccapiSession
     }
 
     public func capture(now: Date) async -> (BalanceSnapshot?, SnapshotError?, model: String?) {
@@ -31,7 +35,7 @@ public struct LiveBalanceSource: BalanceSource {
         }
         let providerName = String(trimmedModel[..<slash])
         let pid = BalanceRegistry.providerID(fromDefaultModel: trimmedModel)
-        guard let provider = BalanceRegistry.provider(for: pid) else {
+        guard let provider = BalanceRegistry.provider(for: pid, ccccapiSession: ccccapiSession) else {
             return (nil, .unmatchedProvider(providerName), model: trimmedModel)
         }
         guard provider.hasCredential(creds: creds) else {
@@ -51,6 +55,15 @@ public struct LiveBalanceSource: BalanceSource {
     }
 
     static func humanReadable(_ error: Error) -> String {
+        if let cccc = error as? CcccapiAuthError {
+            switch cccc {
+            case .notConfigured: return "ccccapi 未配置邮箱/密码"
+            case .credentialInvalid: return "账号登录失败: 凭据无效"
+            case .requires2FA: return "账户开启了 2FA，暂不支持自动登录"
+            case .refreshRejected: return "刷新被拒绝，请重新登录"
+            case .sessionBindingMismatch: return "会话绑定不匹配，请重新登录"
+            }
+        }
         if let http = error as? HTTPError {
             switch http {
             case .timeout: return "请求超时 (10 秒)"

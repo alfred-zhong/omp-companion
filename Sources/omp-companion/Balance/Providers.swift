@@ -3,9 +3,9 @@ import Foundation
 public protocol BalanceProvider: Sendable {
     var id: ProviderID { get }
     /// 校验该 Provider 是否有可用的鉴权凭据。
-    func hasCredential(creds: CredentialsResolver) -> Bool
+    func hasCredential(creds: any CredentialSource) -> Bool
     /// 拉取余额。
-    func fetch(creds: CredentialsResolver, http: HTTPClient) async throws -> BalanceResult
+    func fetch(creds: any CredentialSource, http: HTTPClient) async throws -> BalanceResult
 }
 
 // MARK: - DeepSeek
@@ -14,11 +14,11 @@ public struct DeepSeekProvider: BalanceProvider {
     public let id: ProviderID = .deepseek
     public init() {}
 
-    public func hasCredential(creds: CredentialsResolver) -> Bool {
+    public func hasCredential(creds: any CredentialSource) -> Bool {
         creds.resolve("DEEPSEEK_API_KEY") != nil
     }
 
-    public func fetch(creds: CredentialsResolver, http: HTTPClient) async throws -> BalanceResult {
+    public func fetch(creds: any CredentialSource, http: HTTPClient) async throws -> BalanceResult {
         guard let key = creds.resolve("DEEPSEEK_API_KEY") else {
             throw HTTPError.missingCredential
         }
@@ -65,11 +65,11 @@ public struct MiniMaxRemainsProvider: BalanceProvider {
         self.credentialKey = credentialKey
     }
 
-    public func hasCredential(creds: CredentialsResolver) -> Bool {
+    public func hasCredential(creds: any CredentialSource) -> Bool {
         creds.resolve(credentialKey) != nil
     }
 
-    public func fetch(creds: CredentialsResolver, http: HTTPClient) async throws -> BalanceResult {
+    public func fetch(creds: any CredentialSource, http: HTTPClient) async throws -> BalanceResult {
         guard let key = creds.resolve(credentialKey) else {
             throw HTTPError.missingCredential
         }
@@ -141,11 +141,11 @@ public struct OpenCodeGoProvider: BalanceProvider {
 
     public init() {}
 
-    public func hasCredential(creds: CredentialsResolver) -> Bool {
+    public func hasCredential(creds: any CredentialSource) -> Bool {
         creds.resolve("OPENCODE_API_KEY") != nil
     }
 
-    public func fetch(creds: CredentialsResolver, http: HTTPClient) async throws -> BalanceResult {
+    public func fetch(creds: any CredentialSource, http: HTTPClient) async throws -> BalanceResult {
         guard let key = creds.resolve("OPENCODE_API_KEY") else {
             throw HTTPError.missingCredential
         }
@@ -221,20 +221,32 @@ public struct OpenCodeGoProvider: BalanceProvider {
 
 /// ccccapi（sub2api 系列网关）账户余额 provider。
 /// 只读取用户资料响应中的 USD `balance`，不解析身份、API key 或订阅字段。
+/// 凭据不再来自 `.env`（ADR-0007）：由注入的 `CcccapiSessionManager` 负责登录/刷新并提供 access token。
 public struct CcccapiProvider: BalanceProvider {
     public let id: ProviderID = .ccccapi
     private let endpoint = URL(string: "https://ccccapi.cc/api/v1/user/profile")!
+    private let session: CcccapiSessionManager?
 
-    public init() {}
-
-    public func hasCredential(creds: CredentialsResolver) -> Bool {
-        creds.resolve("CCCCAPI_ACCESS_TOKEN") != nil
+    public init(session: CcccapiSessionManager? = nil) {
+        self.session = session
     }
 
-    public func fetch(creds: CredentialsResolver, http: HTTPClient) async throws -> BalanceResult {
-        guard let token = creds.resolve("CCCCAPI_ACCESS_TOKEN") else {
-            throw HTTPError.missingCredential
+    public func hasCredential(creds: any CredentialSource) -> Bool {
+        session?.hasCredentials() ?? false
+    }
+
+    public func fetch(creds: any CredentialSource, http: HTTPClient) async throws -> BalanceResult {
+        guard let session else { throw HTTPError.missingCredential }
+        var token = try await session.validAccessToken()
+        do {
+            return try await fetchProfile(token: token, http: http)
+        } catch let e as HTTPError where e == .unauthorized(status: 401) {
+            token = try await session.reauthorize()
+            return try await fetchProfile(token: token, http: http)
         }
+    }
+
+    private func fetchProfile(token: String, http: HTTPClient) async throws -> BalanceResult {
         let (data, _) = try await http.get(
             url: endpoint,
             headers: ["Authorization": "Bearer \(token)"],
@@ -274,13 +286,13 @@ public enum BalanceRegistry {
         [DeepSeekProvider(), tokenPlan(), codingPlanCN(), opencodeGo(), ccccapi()]
     }
 
-    public static func provider(for id: ProviderID) -> BalanceProvider? {
+    public static func provider(for id: ProviderID, ccccapiSession: CcccapiSessionManager? = nil) -> BalanceProvider? {
         switch id {
         case .deepseek: return DeepSeekProvider()
         case .minimax: return tokenPlan()
         case .minimaxCodeCN: return codingPlanCN()
         case .opencodeGo: return opencodeGo()
-        case .ccccapi: return ccccapi()
+        case .ccccapi: return ccccapi(session: ccccapiSession)
         case .unknown: return nil
         }
     }
@@ -288,8 +300,8 @@ public enum BalanceRegistry {
     public static func opencodeGo() -> OpenCodeGoProvider {
         OpenCodeGoProvider()
     }
-    public static func ccccapi() -> CcccapiProvider {
-        CcccapiProvider()
+    public static func ccccapi(session: CcccapiSessionManager? = nil) -> CcccapiProvider {
+        CcccapiProvider(session: session)
     }
 
     public static func tokenPlan() -> MiniMaxRemainsProvider {

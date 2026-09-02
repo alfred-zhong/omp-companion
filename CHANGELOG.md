@@ -2,7 +2,14 @@
 
 ## Unreleased
 
+### 变更
 
+- DeepSeek / MiniMax（Token Plan 与 Coding Plan CN） / OpenCode Go 的 API key 由 `.env` 链迁移到偏好面板：偏好面板新增「Provider API Keys」节（4 个 `SecureField`），值经 `SettingsStore` 存 UserDefaults（明文）；新增 `CredentialSource` 协议（`Balance/`），`SettingsStore` 实现，`BalanceProvider` 的 `hasCredential` / `fetch` 参数由 `CredentialsResolver` 换为 `any CredentialSource`；彻底移除 `.env` 链读取并删除 `CredentialsResolver.swift`（旧 key 不再自动读取，需在偏好面板手动填写；决策见 `docs/adr/0008-provider-keys-in-preferences.md`）。
+- ccccapi 鉴权改由偏好面板配置：新增邮箱 + 密码输入与「测试连接」；应用独立登录（`POST /auth/login`）换取 access + refresh token，会话仅内存、不落盘；access token 临近过期自动刷新（`POST /auth/refresh`，refresh token 每次轮转），刷新被拒后用密码兜底重登；移除 `.env` 的 `CCCCAPI_ACCESS_TOKEN` 静态 token 路径（决策见 `docs/adr/0007-ccccapi-login-refresh.md`，取代 `docs/adr/0006-ccccapi-account-balance.md`）。
+
+### Bug 修复
+
+- 偏好面板的邮箱/密码文本域无法粘贴：菜单栏 accessory 应用未装主菜单，缺少 Edit 菜单导致 Cmd+V 的 `paste:` 键等价无法路由。已装入最小主菜单（含编辑菜单），设置窗口文本域恢复粘贴/复制/剪切/全选。
 
 ### 新增特性
 

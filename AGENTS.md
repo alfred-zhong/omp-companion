@@ -8,14 +8,14 @@
 
 - 支持 Provider：`DeepSeek`（CNY）、`MiniMax Token Plan`、`MiniMax Coding Plan (CN)`。
 - Provider 路由：直接读合并后的 `~/.omp/agent/config.yml` 与 `<cwd>/.omp/config.yml` 的 `modelRoles.default`；honor `PI_CODING_AGENT_DIR`。
-- 凭据链：镜像 omp 的 `.env` 链 `process env → <cwd>/.env → ~/.omp/agent/.env → ~/.omp/.env → ~/.env`。
+- 凭据：全部 provider 凭据（DeepSeek / MiniMax×2 / OpenCode Go / ccccapi）改由偏好面板配置、经 `SettingsStore` 存 UserDefaults（ADR-0008 / ADR-0007），不经 `.env`；`.env` 链读取已移除（`CredentialsResolver` 删除）。
 
 ## Architecture & Data Flow
 
 ```
 @main OmpCompanion.main
    └─ AppDelegate.applicationDidFinishLaunching          ← DI 装配
-       ├─ CredentialsResolver(homeDir, cwd)              ← .env 链解析
+       ├─ CredentialSource / SettingsStore               ← provider API key + ccccapi 凭据来源（偏好面板）
        ├─ ConfigSource(homeDir, cwd, env)                ← YAML 合并 (Yams)
        ├─ DailyUsageScanner(sessionsRoot)                ← JSONL 递归扫描
        ├─ SettingsStore()                                ← UserDefaults 镜像
@@ -46,9 +46,8 @@
 | ↳ `RefreshController.swift` | tick 编排 + `AppState` (`ObservableObject`) |
 | ↳ `SelfCheck.swift` | 进程级断言入口（`static run() -> Int`） |
 | ↳ `Model/Models.swift` | 共享值类型：`ProviderID` / `BalanceResult` / `BalanceSnapshot` / `TokenStats` / `HourBucket` / `DailyUsageSnapshot` / `OmpConfig` |
-| ↳ `Balance/` | `HTTPClient` 协议 + `URLSessionHTTPClient` 实现 + `HTTPError` 枚举；`Providers.swift` 三 Provider + `BalanceRegistry`；`BalanceFormatter` 状态栏文案 |
+| ↳ `Balance/` | `HTTPClient` 协议 + `URLSessionHTTPClient` 实现 + `HTTPError` 枚举；`Providers.swift` 三 Provider + `BalanceRegistry`；`CredentialSource.swift` provider key 来源协议；`BalanceFormatter` 状态栏文案；`CcccapiSessionManager.swift` ccccapi 登录/刷新会话状态机 |
 | ↳ `Config/ConfigSource.swift` | `ConfigSource.load() -> OmpConfig`；模块级 `deepMerge` |
-| ↳ `Credentials/CredentialsResolver.swift` | `.env` 链 `loadAll` / `mergedEnv` / `resolve(_:)` |
 | ↳ `DailyUsage/Formatting.swift` | `CompactFormatter.format(Int)` K/M/B + 滚动边界 `999_500 → "1.0M"` |
 | ↳ `DailyUsage/JSONLLineParser.swift` | 单行 JSONL → `ParsedEvent`，复合去重键 `"\(relPath):\(eventId)"` |
 | ↳ `DailyUsage/DailyUsageScanner.swift` | 递归扫描 + mtime 剪枝 + dedup |
@@ -60,6 +59,9 @@
 | `docs/adr/0002-independent-cache-paths.md` | **已被 0004 取代**，勿参考为现行策略 |
 | `docs/adr/0003-swift-rewrite-instead-of-cli.md` | 当前：完全 Swift 重写，不 shell-out |
 | `docs/adr/0004-no-local-cache.md` | 当前（取代 0002）：无本地缓存 |
+| `docs/adr/0006-ccccapi-account-balance.md` | 已被 0007 取代，勿参考为现行策略 |
+| `docs/adr/0007-ccccapi-login-refresh.md` | 当前（取代 0006）：ccccapi 偏好面板凭据 + 仅内存会话 + 按需刷新 |
+| `docs/adr/0008-provider-keys-in-preferences.md` | 当前：DeepSeek / MiniMax×2 / OpenCode Go API key 偏好面板配置（取代 `.env` 链；删除 `CredentialsResolver`） |
 
 ## Development Commands
 
@@ -117,7 +119,7 @@ do {
 - `AppState`（`final class : ObservableObject, @unchecked Sendable`）持有六个 `@Published`：`balance`, `daily`, `lastBalanceError`, `lastDailyError`, `configMissing`, `missingCredential`。**所有修改必须经过 setter**，Setter 都在主线程被调用。
 - `RefreshController` 是 `final class, @unchecked Sendable`；`let` 协作对象 + `var intervalSeconds`（由 SwiftUI picker 闭包写回）。
 - `StatusBarController` 用 `Set<AnyCancellable>` 收 `@Published`；`Timer` 在 `deinit` 与 `restartTimer()` 中 `invalidate()`。
-- DI 通过构造器注入（`CredentialsResolver` / `ConfigSource` / `DailyUsageScanner` / `SettingsStore`）。不要引入 Service Locator 或全局单例。
+- DI 通过构造器注入（`CredentialSource`（由 `SettingsStore` 实现）/ `ConfigSource` / `DailyUsageScanner` / `SettingsStore`）。不要引入 Service Locator 或全局单例。
 
 ### 命名 / 模板
 
@@ -134,7 +136,7 @@ do {
 ### 添加 Provider / Provider 字段
 
 1. 在 `ProviderID` 加 `case`（`CaseIterable, Sendable`）。
-2. `Balance/Providers.swift` 加新 `struct XxxProvider: BalanceProvider`；实现 `hasCredential(creds:) -> Bool` + `fetch(creds:http:) async throws -> BalanceResult`。
+2. `Balance/Providers.swift` 加新 `struct XxxProvider: BalanceProvider`；实现 `hasCredential(creds: any CredentialSource) -> Bool` + `fetch(creds: any CredentialSource, http:) async throws -> BalanceResult`。凭据来源经由 `CredentialSource`（由 `SettingsStore` 实现，偏好面板），不再读 `.env`。
 3. 在 `BalanceRegistry.all()` 注册；在 `providerID(fromDefaultModel:)` 补路由分支。
 4. `SelfCheck` 里加 provider 路由断言（按已有 `.unknown` 分支模式）。
 
@@ -156,7 +158,7 @@ do {
 | `Sources/omp-companion/App.swift` | 进程入口，DI 在此装配 |
 | `Sources/omp-companion/RefreshController.swift` | tick 编排 + `AppState` |
 | `Sources/omp-companion/UI/StatusBarController.swift` | 菜单栏 + Timer + Combine |
-| `docs/adr/0001` & `docs/adr/0003` & `docs/adr/0004` | 当前决策（按 README 引用；0002 已弃） |
+| `docs/adr/0001` & `docs/adr/0003` & `docs/adr/0004` & `docs/adr/0007` & `docs/adr/0008` | 当前决策（按 README 引用；0002 已弃；0006 被 0007 取代） |
 
 ## Runtime / Tooling Preferences
 
@@ -165,7 +167,7 @@ do {
 - **包管理器**：SwiftPM（`Package.swift`）；不要新增 Conan / CocoaPods / Carthage。
 - **签发**：仅本机 ad-hoc（`codesign --force --deep --sign -`），**不做 Developer ID 公证**，不在 release 流程加。
 - **代码签名约束**：不要新增 `LaunchAgent plist`、不要在仓库里写 `~/Library/LaunchAgents/*.plist`。
-- **凭据**：仅从 `.env` 链读取，不读 Keychain。
+- **凭据**：provider API key（DeepSeek / MiniMax×2 / OpenCode Go）与 ccccapi（邮箱/密码）均经 `SettingsStore` 偏好面板配置、存 UserDefaults 明文；**不读 `.env`、不读 Keychain**（ADR-0008 / ADR-0007）。
 - **安全**：provider 请求走 `URLSession.shared`，未配 `NSAppTransportSecurity` 例外；新增端点必须 HTTPS。
 
 ## Testing & QA
@@ -192,3 +194,4 @@ swift run omp-companion --self-check   # 期望 [self-check] OK (全部通过)
 3. 没有 fork 上游 omp CLI；新端点必须以 Swift `BalanceProvider` 协议实现。
 4. 没有为了"实时性"读取 runtime env override（ADR-0001）。
 5. `SelfCheck.run()` 通过、`build.sh` 成功、`build/omp-companion.app` ad-hoc 签名通过 `codesign -dv` 校验。
+6. 没有从 `.env` 读取 provider 凭据（ADR-0008）；凭据一律经 `SettingsStore` 偏好面板。

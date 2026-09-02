@@ -248,18 +248,23 @@ public enum StatusBarPresenter {
             .separator,
             MenuItemSpec(title: "打开 README", action: .openReadme),
             .separator,
+            MenuItemSpec(title: "偏好…", key: ",", action: .showSettings),
             MenuItemSpec(title: "刷新", key: "r", action: .forceRefresh),
             MenuItemSpec(title: "退出", key: "q", action: .quit),
         ]
     }
 
     private static func missingCredentialMenu(_ missing: String) -> [MenuItemSpec] {
+        // missing 形如 "opencode-go 凭据缺失";去掉 "凭据缺失" 后缀,得到 provider 名,
+        // 避免第一行出现 "未找到 opencode-go 凭据缺失 凭据" 的重复。
+        let provider = missing.replacingOccurrences(of: " 凭据缺失", with: "")
         return [
-            MenuItemSpec(title: "未找到 \(missing) 凭据", enabled: false),
-            MenuItemSpec(title: "请在 agent .env 中设置", enabled: false),
+            MenuItemSpec(title: "未找到 \(provider) 凭据", enabled: false),
+            MenuItemSpec(title: "请在偏好面板中设置", enabled: false),
             .separator,
             MenuItemSpec(title: "打开 README", action: .openReadme),
             .separator,
+            MenuItemSpec(title: "偏好…", key: ",", action: .showSettings),
             MenuItemSpec(title: "刷新", key: "r", action: .forceRefresh),
             MenuItemSpec(title: "退出", key: "q", action: .quit),
         ]

@@ -20,9 +20,17 @@ _Avoid_: 服务商、模型提供方、平台
 ccccapi 用户账户的 USD 余额；只读取 `data.balance`，展示按 10:1 转为 CNY；不等同于模型 API Key 额度、token 用量或用户身份资料。
 _Avoid_: API key 余额、账户资料、额度用量
 
-**Ccccapi Access Token**:
-ccccapi 网页会话 access token；从 `.env` 链的 `CCCCAPI_ACCESS_TOKEN` 读取，空白值视为缺失，不在本地保存完整响应或打印 token。
+**Ccccapi Session**:
+ccccapi 网页会话凭据三元组 {access token, refresh token, expiresAt}；经登录或刷新获得，只存内存、不落盘。只有 access token 无法完成刷新；refresh token 每次刷新都会轮转（旧 token 立即失效），必须串行消费。
 _Avoid_: API key、模型密钥
+
+**Ccccapi Login**:
+用偏好面板配置的邮箱+密码 `POST /auth/login` 换取 Ccccapi Session；密码错误返回 `INVALID_CREDENTIALS`，账户开启 2FA 时返回 `requires_2fa`（应用不自动处理，显示"暂不支持自动登录"）。
+_Avoid_: 网页登录、手动登录
+
+**Ccccapi Credential**:
+ccccapi 登录的邮箱+密码，仅存偏好面板（UserDefaults，ADR-0007），不再读 `.env` 的 `CCCCAPI_ACCESS_TOKEN`。
+_Avoid_: 鉴权 token、密钥
 
 **Quota Window**:
 OpenCode Go 订阅的额度窗口：5 小时滚动 / 7 天 / 月度（订阅周年重置）；每窗口由已用百分比（0–100 整数）、状态（正常 / 已限流）、重置时刻组成。状态栏展示 5h 窗口，下拉菜单列出全部窗口。

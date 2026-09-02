@@ -24,6 +24,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsStore = SettingsStore()
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
+        installMainMenu()
         let home = NSHomeDirectory()
         let env = ProcessInfo.processInfo.environment
         let cwd = FileManager.default.currentDirectoryPath
@@ -33,10 +34,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         }()
         let sessionsRoot = "\(agentDir)/sessions"
 
-        let creds = CredentialsResolver(homeDir: home, cwd: cwd)
         let config = ConfigSource(homeDir: home, cwd: cwd, env: env)
         let scanner = DailyUsageScanner(sessionsRoot: sessionsRoot)
-        let balanceSource = LiveBalanceSource(config: config, creds: creds)
+        let ccccapiSession = CcccapiSessionManager(credentials: settingsStore, http: URLSessionHTTPClient())
+        let balanceSource = LiveBalanceSource(config: config, creds: settingsStore, ccccapiSession: ccccapiSession)
         let dailySource = LiveDailyUsageSource(scanner: scanner)
         let controller = RefreshController(
             balanceSource: balanceSource,
@@ -49,9 +50,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         let guard_ = SleepGuard(state: state)
         self.sleepGuard = guard_
 
-        let settingsCtrl = SettingsWindowController { [weak controller] newInterval in
-            controller?.intervalSeconds = newInterval.seconds
-        }
+        let settingsCtrl = SettingsWindowController(
+            onIntervalChange: { [weak controller] newInterval in
+                controller?.intervalSeconds = newInterval.seconds
+            },
+            onTestConnection: { [weak ccccapiSession] in
+                guard let s = ccccapiSession else { return "ccccapi 未配置" }
+                do {
+                    try await s.testConnection()
+                    return nil
+                } catch {
+                    return LiveBalanceSource.humanReadable(error)
+                }
+            }
+        )
         self.settingsController = settingsCtrl
 
         let bar = StatusBarController(
@@ -65,6 +77,31 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         )
         settingsCtrl.attachStatusBar(bar)
         self.statusBar = bar
+    }
+
+    /// 菜单栏 accessory 应用无默认主菜单：装一个最小 Edit 菜单，让设置窗口的文本域
+    /// 能响应 Cmd+V / Cmd+C / Cmd+X / Cmd+A 等编辑快捷键（粘贴等经 `paste:` 路由到 first responder）。
+    private func installMainMenu() {
+        let mainMenu = NSMenu()
+
+        let appItem = NSMenuItem()
+        mainMenu.addItem(appItem)
+        let appMenu = NSMenu()
+        appItem.submenu = appMenu
+        appMenu.addItem(withTitle: "关于 omp-companion", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: "")
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "退出 omp-companion", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+
+        let editItem = NSMenuItem()
+        mainMenu.addItem(editItem)
+        let editMenu = NSMenu(title: "编辑")
+        editItem.submenu = editMenu
+        editMenu.addItem(NSMenuItem(title: "剪切", action: #selector(NSTextView.cut(_:)), keyEquivalent: "x"))
+        editMenu.addItem(NSMenuItem(title: "复制", action: #selector(NSTextView.copy(_:)), keyEquivalent: "c"))
+        editMenu.addItem(NSMenuItem(title: "粘贴", action: #selector(NSTextView.paste(_:)), keyEquivalent: "v"))
+        editMenu.addItem(NSMenuItem(title: "全选", action: #selector(NSTextView.selectAll(_:)), keyEquivalent: "a"))
+
+        NSApp.mainMenu = mainMenu
     }
 
     public func applicationWillTerminate(_ notification: Notification) {

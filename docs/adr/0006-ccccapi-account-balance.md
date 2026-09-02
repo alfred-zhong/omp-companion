@@ -1,5 +1,7 @@
 # 0006 — ccccapi 余额使用网页 access token，按 10:1 展示人民币
 
+> **已被 [ADR-0007](./0007-ccccapi-login-refresh.md) 取代**：ccccapi 凭据改由偏好面板配置，应用独立登录并按需刷新，不再读 `.env` 的 `CCCCAPI_ACCESS_TOKEN`。
+
 ccccapi 是独立 Provider：仅当 `modelRoles.default` 使用 `ccccapi/*` 时，以 `.env` 链中的 `CCCCAPI_ACCESS_TOKEN` 调用 `GET https://ccccapi.cc/api/v1/user/profile`。该 token 是网页会话凭据而非 `sk-...` 模型 API Key；响应只接受标准成功 envelope 的 `data.balance`，内部按 USD 保存，展示按 `$10 = ¥1` 转为 CNY，不解析、保存或展示账户身份、API Key 和订阅资料。
 
 ## Context
