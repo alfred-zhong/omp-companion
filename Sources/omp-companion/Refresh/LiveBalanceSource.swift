@@ -21,25 +21,25 @@ public struct LiveBalanceSource: BalanceSource {
         self.ccccapiSession = ccccapiSession
     }
 
-    public func capture(now: Date) async -> (BalanceSnapshot?, SnapshotError?, model: String?) {
+    public func capture(now: Date) async -> BalanceCapture {
         let cfg = config.load()
         let model = cfg.defaultModel
         guard let defaultModel = model, !defaultModel.isEmpty else {
-            return (nil, .configMissing, model: model)
+            return BalanceCapture(snapshot: nil, error: .configMissing, model: model)
         }
         let trimmedModel = defaultModel.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let slash = trimmedModel.firstIndex(of: "/"),
               slash != trimmedModel.startIndex,
               trimmedModel.index(after: slash) != trimmedModel.endIndex else {
-            return (nil, .fetchError("默认模型格式无效（\(defaultModel)）"), model: defaultModel)
+            return BalanceCapture(snapshot: nil, error: .fetchError("默认模型格式无效（\(defaultModel)）"), model: defaultModel)
         }
         let providerName = String(trimmedModel[..<slash])
         let pid = BalanceRegistry.providerID(fromDefaultModel: trimmedModel)
         guard let provider = BalanceRegistry.provider(for: pid, ccccapiSession: ccccapiSession) else {
-            return (nil, .unmatchedProvider(providerName), model: trimmedModel)
+            return BalanceCapture(snapshot: nil, error: .unmatchedProvider(providerName), model: trimmedModel)
         }
         guard provider.hasCredential(creds: creds) else {
-            return (nil, .missingCredential(pid.rawValue), model: model)
+            return BalanceCapture(snapshot: nil, error: .missingCredential(pid.rawValue), model: model)
         }
         do {
             let result = try await provider.fetch(creds: creds, http: http)
@@ -48,9 +48,9 @@ public struct LiveBalanceSource: BalanceSource {
                 capturedAt: now,
                 quotaWindows: result.quotaWindows
             )
-            return (snap, nil, model: model)
+            return BalanceCapture(snapshot: snap, error: nil, model: model)
         } catch {
-            return (nil, .fetchError(Self.humanReadable(error)), model: model)
+            return BalanceCapture(snapshot: nil, error: .fetchError(Self.humanReadable(error)), model: model)
         }
     }
 

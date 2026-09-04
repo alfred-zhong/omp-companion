@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### 变更
+- 深化余额 Refresh 状态迁移：新增 `BalanceCapture` 与 `BalanceRefreshOutcome`，统一由 `RefreshController` 计算并一次写入余额显示状态；SelfCheck 改为通过真实 `tick()` 验证 Source 编排与成功、失败、恢复、stale、未匹配 Provider 路径，保持现有用户可见行为不变。
 
 - DeepSeek / MiniMax（Token Plan 与 Coding Plan CN） / OpenCode Go 的 API key 由 `.env` 链迁移到偏好面板：偏好面板新增「Provider API Keys」节（4 个 `SecureField`），值经 `SettingsStore` 存 UserDefaults（明文）；新增 `CredentialSource` 协议（`Balance/`），`SettingsStore` 实现，`BalanceProvider` 的 `hasCredential` / `fetch` 参数由 `CredentialsResolver` 换为 `any CredentialSource`；彻底移除 `.env` 链读取并删除 `CredentialsResolver.swift`（旧 key 不再自动读取，需在偏好面板手动填写；决策见 `docs/adr/0008-provider-keys-in-preferences.md`）。
 - ccccapi 鉴权改由偏好面板配置：新增邮箱 + 密码输入与「测试连接」；应用独立登录（`POST /auth/login`）换取 access + refresh token，会话仅内存、不落盘；access token 临近过期自动刷新（`POST /auth/refresh`，refresh token 每次轮转），刷新被拒后用密码兜底重登；移除 `.env` 的 `CCCCAPI_ACCESS_TOKEN` 静态 token 路径（决策见 `docs/adr/0007-ccccapi-login-refresh.md`，取代 `docs/adr/0006-ccccapi-account-balance.md`）。

@@ -26,17 +26,21 @@ public final class AppState: ObservableObject, @unchecked Sendable {
 
     public init() {}
 
-    public func setBalance(_ snap: BalanceSnapshot?) { self.balance = snap }
-    public func setBalanceUnavailableFor(_ provider: ProviderID?) { self.balanceUnavailableFor = provider }
+    /// 一次写入完整 Balance Refresh Outcome；余额字段的同步细节不泄漏给 RefreshController。
+    public func applyBalance(_ outcome: BalanceRefreshOutcome) {
+        self.balance = outcome.balance
+        self.balanceUnavailableFor = outcome.balanceUnavailableFor
+        self.lastBalanceError = outcome.lastBalanceError
+        self.configMissing = outcome.configMissing
+        self.missingCredential = outcome.missingCredential
+        self.currentModel = outcome.currentModel
+        self.currentProvider = outcome.currentProvider
+        self.unmatchedProvider = outcome.unmatchedProvider
+    }
+
     public func setDaily(_ snap: DailyUsageSnapshot?) { self.daily = snap }
-    public func setBalanceError(_ msg: String?) { self.lastBalanceError = msg }
     public func setDailyError(_ msg: String?) { self.lastDailyError = msg }
-    public func setConfigMissing(_ v: Bool) { self.configMissing = v }
-    public func setMissingCredential(_ v: String?) { self.missingCredential = v }
-    public func setCurrentModel(_ m: String?) { self.currentModel = m }
     public func setCaffeinateSession(_ s: CaffeinateSession?) { self.caffeinateSession = s }
-    public func setCurrentProvider(_ p: ProviderID?) { self.currentProvider = p }
-    public func setUnmatchedProvider(_ p: String?) { self.unmatchedProvider = p }
     public func advanceCountdownTick() { self.countdownTick = Date() }
 }
 
@@ -61,18 +65,18 @@ public final class RefreshController: @unchecked Sendable {
     }
 
     public func tick() async {
-        let bs = await balanceSource.capture(now: Date())
-        let ds = await dailySource.capture(now: Date())
+        let balanceCapture = await balanceSource.capture(now: Date())
+        let dailyCapture = await dailySource.capture(now: Date())
         await MainActor.run {
-            self.applyBalance(snap: bs.0, err: bs.1, model: bs.2)
-            self.applyDaily(snap: ds.0, err: ds.1)
+            self.state.applyBalance(self.balanceOutcome(for: balanceCapture))
+            self.applyDaily(snap: dailyCapture.0, err: dailyCapture.1)
         }
     }
 
     public func refreshBalance() async {
-        let (snap, err, model) = await balanceSource.capture(now: Date())
+        let capture = await balanceSource.capture(now: Date())
         await MainActor.run {
-            self.applyBalance(snap: snap, err: err, model: model)
+            self.state.applyBalance(self.balanceOutcome(for: capture))
         }
     }
 
@@ -83,87 +87,71 @@ public final class RefreshController: @unchecked Sendable {
         }
     }
 
-    /// 同步入口:不抓 source,直接用 caller 提供的 (snap, err) 对调 setter。
-    /// 给 SelfCheck 用来在不依赖 main runloop / detached task 的情况下验证应用逻辑。
-    public func apply(
-        balanceSnap: BalanceSnapshot?, balanceErr: SnapshotError?,
-        balanceModel: String? = nil,
-        dailySnap: DailyUsageSnapshot?, dailyErr: SnapshotError?
-    ) {
-        self.applyBalance(snap: balanceSnap, err: balanceErr, model: balanceModel)
-        self.applyDaily(snap: dailySnap, err: dailyErr)
-    }
-    private func applyBalance(snap: BalanceSnapshot?, err: SnapshotError?, model: String?) {
-        // 模型名来自 config，与 fetch 成败无关：每个 tick 无条件回填（缺配置时为 nil → 菜单 "?"）。
-        self.state.setCurrentModel(model)
-        switch err {
+
+    private func balanceOutcome(for capture: BalanceCapture) -> BalanceRefreshOutcome {
+        var configMissing = false
+        var missingCredential: String?
+        var unmatchedProvider = state.unmatchedProvider
+        var lastBalanceError: String?
+        var balanceUnavailableFor: ProviderID?
+        var currentProvider = state.currentProvider
+
+        switch capture.error {
         case .configMissing:
-            self.state.setConfigMissing(true)
-            self.state.setMissingCredential(nil)
-            self.state.setUnmatchedProvider(nil)
-            self.state.setBalanceError(nil)
-            self.state.setBalanceUnavailableFor(nil)
-            self.state.setCurrentProvider(nil)
+            configMissing = true
+            unmatchedProvider = nil
+            currentProvider = nil
         case .unmatchedProvider(let name):
-            self.state.setConfigMissing(false)
-            self.state.setMissingCredential(nil)
-            self.state.setBalanceError(nil)
-            self.state.setBalanceUnavailableFor(nil)
-            self.state.setUnmatchedProvider(name)
-            self.state.setCurrentProvider(.unknown)
+            unmatchedProvider = name
+            currentProvider = .unknown
         case .missingCredential(let key):
-            self.state.setConfigMissing(false)
-            self.state.setUnmatchedProvider(nil)
-            self.state.setBalanceError(nil)
-            self.state.setBalanceUnavailableFor(nil)
-            self.state.setMissingCredential("\(key) 凭据缺失")
-            // 即使没拉到余额,凭据缺失这个消息本身也含 provider id —— 把它回填一次,
-            // 这样状态栏从 "···" 立刻转到对应 logo + 警示文本,而不是先空白再二次刷新。
-            self.state.setCurrentProvider(ProviderID(rawLowercased: key))
+            missingCredential = "\(key) 凭据缺失"
+            unmatchedProvider = nil
+            currentProvider = ProviderID(rawLowercased: key)
         case .fetchError(let reason):
-            self.state.setConfigMissing(false)
-            self.state.setMissingCredential(nil)
-            self.state.setUnmatchedProvider(nil)
-            self.state.setBalanceError(reason)
-            let failedProvider = model.map { BalanceRegistry.providerID(fromDefaultModel: $0) }
+            lastBalanceError = reason
+            let failedProvider = capture.model.map { BalanceRegistry.providerID(fromDefaultModel: $0) }
+            unmatchedProvider = nil
             if let failedProvider, failedProvider != .unknown {
-                self.state.setBalanceUnavailableFor(failedProvider)
-                self.state.setCurrentProvider(failedProvider)
-            } else {
-                self.state.setBalanceUnavailableFor(nil)
+                balanceUnavailableFor = failedProvider
+                currentProvider = failedProvider
             }
         case .scanError, nil:
-            self.state.setConfigMissing(false)
-            self.state.setMissingCredential(nil)
-            self.state.setBalanceError(nil)
-            self.state.setBalanceUnavailableFor(nil)
+            break
         }
 
-        let nextBalance: BalanceSnapshot?
-        if case .fetchError = err, snap == nil {
-            if self.state.balanceUnavailableFor != nil {
-                nextBalance = nil
-            } else if let old = self.state.balance {
-                nextBalance = BalanceSnapshot(
+        let balance: BalanceSnapshot?
+        if case .fetchError = capture.error, capture.snapshot == nil {
+            if balanceUnavailableFor != nil {
+                balance = nil
+            } else if let old = state.balance {
+                balance = BalanceSnapshot(
                     result: old.result,
                     capturedAt: old.capturedAt,
                     isStale: true,
                     quotaWindows: old.quotaWindows
                 )
             } else {
-                nextBalance = nil
+                balance = nil
             }
         } else {
-            nextBalance = snap
+            balance = capture.snapshot
         }
-        self.state.setBalance(nextBalance)
-        // 成功 fetch 后从 snapshot 派生 currentProvider；stale 快照继续使用旧 provider。
-        if let nextBalance, !nextBalance.isStale {
-            self.state.setCurrentProvider(nextBalance.result.provider)
+        if let balance, !balance.isStale {
+            currentProvider = balance.result.provider
         }
 
+        return BalanceRefreshOutcome(
+            balance: balance,
+            balanceUnavailableFor: balanceUnavailableFor,
+            lastBalanceError: lastBalanceError,
+            configMissing: configMissing,
+            missingCredential: missingCredential,
+            currentModel: capture.model,
+            currentProvider: currentProvider,
+            unmatchedProvider: unmatchedProvider
+        )
     }
-
     private func applyDaily(snap: DailyUsageSnapshot?, err: SnapshotError?) {
         self.state.setDaily(snap)
         if case .scanError(let reason) = err {

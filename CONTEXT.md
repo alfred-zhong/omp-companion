@@ -76,3 +76,11 @@ _Avoid_: 守护任务、唤醒锁
 **Caffeinate Bucket**:
 阻止休眠的预设档位集合：`{30, 60, 120}` 分钟；菜单子菜单列出全部档位，当前生效档位标 ✓。区别于 Daily Usage 里的 Hourly Bucket。
 _Avoid_: 时长档
+
+**Balance Refresh Outcome**:
+一次余额 Refresh 对 Default Model 与 Snapshot 或显式失败信号的完整结果；任一 Outcome 唯一决定菜单栏可见的余额、Provider 与降级状态。
+_Avoid_: 单个字段更新、余额错误
+
+**Balance Capture**:
+一次余额采集交给 RefreshController 的事实集合：Default Model、余额 Snapshot 或显式失败信号；不包含状态迁移结果。
+_Avoid_: 余额结果、余额状态

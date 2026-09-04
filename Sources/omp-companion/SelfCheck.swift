@@ -10,7 +10,7 @@ public enum SelfCheck {
             if !cond { failures.append(name) }
         }
 
-        // 把 async 操作桥到同步 self-check 的小工具。
+        // Pump the main run loop while waiting so RefreshController can publish on MainActor.
         func sync<T: Sendable>(_ op: @escaping @Sendable () async -> T) -> T {
             let sema = DispatchSemaphore(value: 0)
             let box = UncheckedSendableBox<T>(nil)
@@ -19,7 +19,9 @@ public enum SelfCheck {
                 box.set(v)
                 sema.signal()
             }
-            sema.wait()
+            while sema.wait(timeout: .now()) == .timedOut {
+                RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.001))
+            }
             return box.get()!
         }
 
@@ -143,8 +145,8 @@ public enum SelfCheck {
                     http: http
                 )
                 let capture = sync { await source.capture(now: Date()) }
-                check("Source.unmatched.noSnapshot", capture.0 == nil)
-                check("Source.unmatched.signal", capture.1 == .unmatchedProvider("OpenCode-Zen"))
+                check("Source.unmatched.noSnapshot", capture.snapshot == nil)
+                check("Source.unmatched.signal", capture.error == .unmatchedProvider("OpenCode-Zen"))
                 check("Source.unmatched.modelNormalized", capture.model == "OpenCode-Zen/foo:high")
                 check("Source.unmatched.noHTTP", http.callCount == 0)
 
@@ -154,7 +156,7 @@ public enum SelfCheck {
                     encoding: .utf8
                 )
                 let invalidCapture = sync { await source.capture(now: Date()) }
-                if case .fetchError = invalidCapture.1 {
+                if case .fetchError = invalidCapture.error {
                     check("Source.invalidModel.error", true)
                 } else {
                     check("Source.invalidModel.error", false)
@@ -428,132 +430,74 @@ public enum SelfCheck {
             check("Menu.header.label", header.title.contains("☕️ 阻止休眠 · 还剩"))
         }
 
-        // RefreshController state application via fake Sources
+        // RefreshController state application through the production tick seam.
         do {
-            do {
-                let state = AppState()
-                let rc = RefreshController(
-                    balanceSource: FakeBalanceSource(),
-                    dailySource: FakeDailyUsageSource(),
-                    state: state
-                )
-                rc.apply(balanceSnap: nil, balanceErr: .configMissing, dailySnap: nil, dailyErr: nil)
-                check("Refresh.cfgMissing", state.configMissing == true)
-                check("Refresh.cfgMissing.balance", state.balance == nil)
-            }
-            do {
-                let state = AppState()
-                let rc = RefreshController(
-                    balanceSource: FakeBalanceSource(),
-                    dailySource: FakeDailyUsageSource(),
-                    state: state
-                )
-                rc.apply(balanceSnap: nil, balanceErr: .missingCredential("deepseek"), dailySnap: nil, dailyErr: nil)
-                check("Refresh.credMissing", state.missingCredential?.contains("deepseek") == true)
-                check("Refresh.credMissing.cfgOK", state.configMissing == false)
-            }
-            do {
-                let state = AppState()
-                let rc = RefreshController(balanceSource: FakeBalanceSource(), dailySource: FakeDailyUsageSource(), state: state)
-                let snap = BalanceSnapshot(
-                    result: BalanceResult(provider: .deepseek, balance: 12.5, currency: .cny),
-                    capturedAt: Date()
-                )
-                rc.apply(balanceSnap: snap, balanceErr: nil, balanceModel: "deepseek/deepseek-chat", dailySnap: nil, dailyErr: nil)
-                check("Refresh.success.balance", state.balance?.result.balance == 12.5)
-                check("Refresh.success.noError", state.lastBalanceError == nil)
-                check("Refresh.success.model", state.currentModel == "deepseek/deepseek-chat")
-            }
-            do {
-                let state = AppState()
-                let rc = RefreshController(balanceSource: FakeBalanceSource(), dailySource: FakeDailyUsageSource(), state: state)
-                let daily = DailyUsageSnapshot(
-                    today: TokenStats(inputTokens: 100, outputTokens: 50, cacheReadTokens: 200),
-                    hourly: (0..<HOUR_BUCKET_COUNT).map { _ in HourBucket(startMs: 0, endMs: 0) },
-                    messageCount: 1,
-                    capturedAt: Date()
-                )
-                rc.apply(balanceSnap: nil, balanceErr: nil, dailySnap: daily, dailyErr: nil)
-                check("Refresh.daily.input", state.daily?.today.inputTokens == 100)
-            }
-            do {
-                let state = AppState()
-                let rc = RefreshController(
-                    balanceSource: FakeBalanceSource(),
-                    dailySource: FakeDailyUsageSource(),
-                    state: state
-                )
-                rc.apply(balanceSnap: nil, balanceErr: .fetchError("请求超时 (10 秒)"), dailySnap: nil, dailyErr: nil)
-                check("Refresh.fetchError", state.lastBalanceError == "请求超时 (10 秒)")
-                check("Refresh.fetchError.noCred", state.missingCredential == nil)
-                check("Refresh.fetchError.noOldBalance", state.balance == nil)
-                check("Refresh.fetchError.unavailableNil", state.balanceUnavailableFor == nil)
-            }
-            do {
-                let state = AppState()
-                let rc = RefreshController(balanceSource: FakeBalanceSource(), dailySource: FakeDailyUsageSource(), state: state)
-                let old = BalanceSnapshot(
-                    result: BalanceResult(provider: .ccccapi, balance: 12.34, currency: .usd),
-                    capturedAt: Date()
-                )
-                rc.apply(balanceSnap: old, balanceErr: nil, balanceModel: "ccccapi/model", dailySnap: nil, dailyErr: nil)
-                rc.apply(balanceSnap: nil, balanceErr: .fetchError("鉴权失败 (401)"), balanceModel: "ccccapi/model", dailySnap: nil, dailyErr: nil)
-                check("Refresh.ccccapi.failure.noBalance", state.balance == nil)
-                check("Refresh.ccccapi.failure.unavailable", state.balanceUnavailableFor == .ccccapi)
-                check("Refresh.ccccapi.failure.error", state.lastBalanceError == "鉴权失败 (401)")
-                let failureInputs = StatusBarPresenter.Inputs(
-                    balance: state.balance,
-                    balanceUnavailableFor: state.balanceUnavailableFor,
-                    lastBalanceError: state.lastBalanceError
-                )
-                check("Refresh.ccccapi.failure.title", StatusBarPresenter.renderTitle(failureInputs).string == "\u{2009}\u{2009}NaN")
-                let recovered = BalanceSnapshot(
-                    result: BalanceResult(provider: .ccccapi, balance: 20, currency: .usd),
-                    capturedAt: Date()
-                )
-                rc.apply(balanceSnap: recovered, balanceErr: nil, balanceModel: "ccccapi/model", dailySnap: nil, dailyErr: nil)
-                check("Refresh.ccccapi.recovered.balance", state.balance?.result.balance == 20)
-                check("Refresh.ccccapi.recovered.clearsUnavailable", state.balanceUnavailableFor == nil && state.lastBalanceError == nil)
-            }
-            do {
-                let state = AppState()
-                let rc = RefreshController(balanceSource: FakeBalanceSource(), dailySource: FakeDailyUsageSource(), state: state)
-                rc.apply(
-                    balanceSnap: nil,
-                    balanceErr: .fetchError("请求超时 (10 秒)"),
-                    balanceModel: "deepseek/deepseek-chat",
-                    dailySnap: nil,
-                    dailyErr: nil
-                )
-                check("Refresh.deepseek.failure.unavailable", state.balanceUnavailableFor == .deepseek)
-                check("Refresh.deepseek.failure.noBalance", state.balance == nil)
-                let failureInputs = StatusBarPresenter.Inputs(
-                    balance: state.balance,
-                    balanceUnavailableFor: state.balanceUnavailableFor,
-                    lastBalanceError: state.lastBalanceError
-                )
-                check("Refresh.deepseek.failure.title", StatusBarPresenter.renderTitle(failureInputs).string == "\u{2009}\u{2009}NaN")
-            }
-            do {
-                let state = AppState()
-                let rc = RefreshController(balanceSource: FakeBalanceSource(), dailySource: FakeDailyUsageSource(), state: state)
-                let old = BalanceSnapshot(
-                    result: BalanceResult(provider: .deepseek, balance: 12.5, currency: .cny),
-                    capturedAt: Date()
-                )
-                rc.apply(balanceSnap: old, balanceErr: nil, balanceModel: "deepseek/deepseek-chat", dailySnap: nil, dailyErr: nil)
-                rc.apply(
-                    balanceSnap: nil,
-                    balanceErr: .unmatchedProvider("OpenCode-Zen"),
-                    balanceModel: "OpenCode-Zen/foo:high",
-                    dailySnap: nil,
-                    dailyErr: nil
-                )
-                check("Refresh.unmatched.noBalance", state.balance == nil)
-                check("Refresh.unmatched.provider", state.unmatchedProvider == "OpenCode-Zen")
-                check("Refresh.unmatched.logo", state.currentProvider == .unknown)
-                check("Refresh.unmatched.noError", state.lastBalanceError == nil && state.missingCredential == nil)
-            }
+            let daily = DailyUsageSnapshot(
+                today: TokenStats(inputTokens: 100, outputTokens: 50, cacheReadTokens: 200),
+                hourly: (0..<HOUR_BUCKET_COUNT).map { _ in HourBucket(startMs: 0, endMs: 0) },
+                messageCount: 1,
+                capturedAt: Date()
+            )
+            let balanceSource = FakeBalanceSource(next: BalanceCapture(snapshot: nil, error: .configMissing, model: nil))
+            let dailySource = FakeDailyUsageSource(next: (daily, nil))
+            let state = AppState()
+            let rc = RefreshController(balanceSource: balanceSource, dailySource: dailySource, state: state)
+            sync { await rc.tick() }
+            check("Refresh.tick.balanceCalls", balanceSource.callCount == 1)
+            check("Refresh.tick.dailyCalls", dailySource.callCount == 1)
+            check("Refresh.cfgMissing", state.configMissing == true)
+            check("Refresh.cfgMissing.balance", state.balance == nil)
+            check("Refresh.tick.daily", state.daily?.today.inputTokens == 100)
+
+            let success = BalanceSnapshot(
+                result: BalanceResult(provider: .deepseek, balance: 12.5, currency: .cny),
+                capturedAt: Date()
+            )
+            balanceSource.next = BalanceCapture(snapshot: success, error: nil, model: "deepseek/deepseek-chat")
+            sync { await rc.tick() }
+            check("Refresh.success.balance", state.balance?.result.balance == 12.5)
+            check("Refresh.success.noError", state.lastBalanceError == nil)
+            check("Refresh.success.model", state.currentModel == "deepseek/deepseek-chat")
+            check("Refresh.success.provider", state.currentProvider == .deepseek)
+
+            balanceSource.next = BalanceCapture(snapshot: nil, error: .missingCredential("deepseek"), model: "deepseek/deepseek-chat")
+            sync { await rc.tick() }
+            check("Refresh.credMissing", state.missingCredential?.contains("deepseek") == true)
+            check("Refresh.credMissing.cfgOK", state.configMissing == false)
+            check("Refresh.credMissing.noBalance", state.balance == nil)
+
+            balanceSource.next = BalanceCapture(snapshot: nil, error: .unmatchedProvider("OpenCode-Zen"), model: "OpenCode-Zen/foo:high")
+            sync { await rc.tick() }
+            check("Refresh.unmatched.noBalance", state.balance == nil)
+            check("Refresh.unmatched.provider", state.unmatchedProvider == "OpenCode-Zen")
+            check("Refresh.unmatched.logo", state.currentProvider == .unknown)
+            check("Refresh.unmatched.noError", state.lastBalanceError == nil && state.missingCredential == nil)
+
+            balanceSource.next = BalanceCapture(snapshot: nil, error: .fetchError("请求超时 (10 秒)"), model: "deepseek/deepseek-chat")
+            sync { await rc.tick() }
+            check("Refresh.fetchError", state.lastBalanceError == "请求超时 (10 秒)")
+            check("Refresh.fetchError.unavailable", state.balanceUnavailableFor == .deepseek)
+            check("Refresh.fetchError.noBalance", state.balance == nil)
+
+            let old = BalanceSnapshot(
+                result: BalanceResult(provider: .ccccapi, balance: 12.34, currency: .usd),
+                capturedAt: Date()
+            )
+            balanceSource.next = BalanceCapture(snapshot: old, error: nil, model: "ccccapi/model")
+            sync { await rc.tick() }
+            balanceSource.next = BalanceCapture(snapshot: nil, error: .fetchError("网络错误"), model: "unsupported/model")
+            sync { await rc.tick() }
+            check("Refresh.unknownFailure.stale", state.balance?.isStale == true)
+            check("Refresh.unknownFailure.keepsProvider", state.currentProvider == .ccccapi)
+
+            let recovered = BalanceSnapshot(
+                result: BalanceResult(provider: .ccccapi, balance: 20, currency: .usd),
+                capturedAt: Date()
+            )
+            balanceSource.next = BalanceCapture(snapshot: recovered, error: nil, model: "ccccapi/model")
+            sync { await rc.tick() }
+            check("Refresh.recovered.balance", state.balance?.result.balance == 20)
+            check("Refresh.recovered.clearsUnavailable", state.balanceUnavailableFor == nil && state.lastBalanceError == nil)
         }
 
         // SleepGuard via FakeIOPMAssertionAdapter + RecordingTicker (@MainActor)
